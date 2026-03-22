@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "brightohir"
+version = "1.0.0"
+description = "BrighTO HL7 Interoperability Runtime — FHIR R5, R4↔R5, V2.x↔R5 Python SDK"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "BrighTO Technology / Hatto AI"},
+]
+keywords = [
+    "hl7", "fhir", "fhir-r5", "healthcare", "interoperability",
+    "hl7v2", "pharmacy", "ehr", "clinical", "medical",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Healthcare Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
+]
+dependencies = [
+    "fhir.resources>=8.0.0",
+    "fhir-core>=1.1.0",
+    "hl7apy>=1.3.5",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+client = ["fhirpy>=2.2.0"]
+fhirpath = ["fhirpathpy>=0.2.0"]
+dev = ["pytest>=8.0", "pytest-cov", "ruff", "build", "twine"]
+all = ["fhirpy>=2.2.0", "fhirpathpy>=0.2.0"]
+
+[project.urls]
+Homepage = "https://github.com/BrighTOTechnology/brightohir"
+Documentation = "https://github.com/BrighTOTechnology/brightohir#readme"
+Repository = "https://github.com/BrighTOTechnology/brightohir"
+Issues = "https://github.com/BrighTOTechnology/brightohir/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+brightohir = ["py.typed", "mappings/*.yaml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
