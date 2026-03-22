@@ -430,6 +430,35 @@ src/brightohir/
 
 ---
 
+## Acknowledgments — Tri ân
+
+brightohir would not exist without the exceptional open-source libraries it builds upon. We are deeply grateful to their authors and communities.
+
+*brightohir không thể tồn tại nếu thiếu các thư viện mã nguồn mở xuất sắc mà nó được xây dựng trên đó. Chúng tôi trân trọng tri ân các tác giả và cộng đồng đằng sau chúng.*
+
+| Library | Authors / Maintainers | Contribution to brightohir | License |
+|---|---|---|---|
+| **[fhir.resources](https://github.com/nazrulworld/fhir.resources)** | Md Nazrul Islam ([@nazrulworld](https://github.com/nazrulworld)) | The foundation of our FHIR R5 support — 157 Pydantic V2 models with full validation, serialization, and type safety. Without this library, every resource would need hand-written schemas. | BSD |
+| **[fhir-core](https://github.com/nazrulworld/fhir-core)** | Md Nazrul Islam | Abstract base classes and primitive data types that power fhir.resources. The invisible engine underneath. | BSD |
+| **[hl7apy](https://github.com/crs4/hl7apy)** | CRS4 — Vittorio Meloni, Giovanni Busonera, and contributors | Our V2 parsing backbone — grammar-driven, specification-compliant, covering V2.1 through V2.8.2. The quality of hl7apy's parser directly enables brightohir's segment-level conversion accuracy. | MIT |
+| **[fhirpy](https://github.com/beda-software/fhir-py)** | beda.software ([@ir4y](https://github.com/ir4y), [@ruscoder](https://github.com/ruscoder)) | Async/sync FHIR client that powers our optional server connectivity. Clean, well-maintained, production-tested. | MIT |
+| **[fhirpath-py](https://github.com/beda-software/fhirpath-py)** | beda.software | FHIRPath expression evaluator with R4/R5 model support. Essential for advanced querying. | MIT |
+| **[Pydantic](https://github.com/pydantic/pydantic)** | Samuel Colvin ([@samuelcolvin](https://github.com/samuelcolvin)) and team | The validation engine behind fhir.resources. V2's performance and type-safety made FHIR resource handling practical in Python. | MIT |
+
+We also acknowledge the standards bodies whose work defines the interoperability landscape:
+
+*Chúng tôi cũng tri ân các tổ chức tiêu chuẩn đã định hình hạ tầng tương tác y tế:*
+
+- **[HL7 International](https://www.hl7.org/)** — For HL7 V2, FHIR, and the V2-to-FHIR Implementation Guide that provides the computable mappings (400+ CSV ConceptMaps) on which our conversion logic is based.
+- **[HL7 V2-to-FHIR Project](https://github.com/HL7/v2-to-fhir)** — Keith Boone, Craig Newman, and the Orders & Observations Workgroup — 7 years of mapping work culminating in the STU1 publication (Oct 2025) that made standardized V2↔FHIR conversion possible.
+- **[SMART on FHIR](https://smarthealthit.org/)** — Boston Children's Hospital Computational Health Informatics Program — for fhir-parser and the client-py reference implementation that shaped the Python FHIR ecosystem.
+
+To all these teams: your work enables healthcare interoperability for millions of patients. brightohir is simply a bridge that connects your tools.
+
+*Gửi đến tất cả các đội ngũ trên: công trình của các bạn mang lại khả năng tương tác y tế cho hàng triệu bệnh nhân. brightohir chỉ đơn giản là cây cầu nối các công cụ của các bạn lại với nhau.*
+
+---
+
 ## License — Giấy phép
 
 **MIT License** — Copyright (c) 2026 BrighTO Technology / Hatto AI
@@ -444,6 +473,6 @@ GitHub: [github.com/thusinh1969/brightohir](https://github.com/thusinh1969/brigh
 
 ---
 
-*Built with inspiration from Long Châu Pharmacy Group (FPT Retail), who serving millions of patients across Vietnam, everyday.*
+*Built with inspiration from Long Châu Pharmacy Group (FPT Retail), who serving millions of patients across Vietnam everyday.*
 
-*Được xây dựng với cảm hứng từ Nhà thuốc Long Châu (FPT Retail), nơi phục vụ hàng triệu bệnh nhân trên khắp Việt Nam, mỗi ngày.*
+*Được xây dựng với cảm hứng từ Nhà thuốc Long Châu (FPT Retail), nơi phục vụ hàng triệu bệnh nhân trên khắp Việt Nam mỗi ngày.*
