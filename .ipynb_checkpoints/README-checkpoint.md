@@ -537,6 +537,6 @@ GitHub: [github.com/thusinh1969/brightohir](https://github.com/thusinh1969/brigh
 
 ---
 
-*Built with inspiration from Long Châu Pharmacy Group (FPT Retail), who serving millions of patients across Vietnam.*
+*Built with inspiration to serve millions of patients across Vietnam, everyday.*
 
-*Được xây dựng với cảm hứng từ Nhà thuốc Long Châu (FPT Retail), nơi phục vụ hàng triệu bệnh nhân trên khắp Việt Nam.*
+*Được xây dựng với cảm hứng phục vụ hàng triệu bệnh nhân trên khắp Việt Nam, mỗi ngày.*
