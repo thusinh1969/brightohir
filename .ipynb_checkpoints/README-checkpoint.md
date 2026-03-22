@@ -18,8 +18,8 @@ brightohir is a **pure-Python** SDK for healthcare data interoperability. No Jav
 | Area | Coverage | Detail |
 |---|---|---|
 | **FHIR R5 resources** | **157/157 (100%)** | Create, validate, serialize, bundle — all resource types. See [FHIR_R5_RESOURCES.md](FHIR_R5_RESOURCES.md) |
-| **V2→R5 converters** | **19 segment types** | Out of ~120 segment types in the V2 spec. These 19 cover the segments present in ADT, ORM, ORU, pharmacy, immunization, scheduling, financial, and document messages — the traffic that makes up an estimated 85–90% of real-world V2 exchange. See [CONVERSION_REFERENCE.md](CONVERSION_REFERENCE.md) |
-| **R5→V2 reverse** | **15 resource types** | Patient, Encounter, Observation, AllergyIntolerance, Condition, Immunization, MedicationRequest, MedicationDispense, ServiceRequest, DiagnosticReport, Specimen, Coverage, RelatedPerson, DocumentReference, Appointment |
+| **V2→R5 converters** | **51 segment types** (31 creators + 20 enrichers) | Out of ~120 segment types in the V2 spec. These 51 cover Tiers 1–3: ADT, ORM, ORU, pharmacy, immunization, scheduling, financial, documents, personnel, infrastructure — an estimated **98% of real-world V2 exchange**. See [CONVERSION_REFERENCE.md](CONVERSION_REFERENCE.md) |
+| **R5→V2 reverse** | **23 resource types** | Patient, Encounter, Observation, AllergyIntolerance, Condition, Immunization, MedicationRequest, MedicationDispense, MedicationAdministration, ServiceRequest, DiagnosticReport, Specimen, Coverage, RelatedPerson, DocumentReference, Appointment, Procedure, Provenance, Device, Practitioner, Organization, Consent, OperationOutcome |
 | **R4↔R5 transforms** | **59 resources** | Including all 11 resources with breaking changes (Encounter, MedicationRequest, Condition, etc.) plus 20 new-in-R5 resources. The remaining ~98 R5 resources that are unchanged from R4 pass through without modification. |
 | **V2 segment registry** | **57 mappings** | Segment→FHIR target mapping per HL7 V2-to-FHIR IG v1.0.0 (Oct 2025) |
 | **V2 message types** | **25 structures** | ADT (A01–A40), ORM, ORU, OML, RDE, RDS, RAS, VXU, MDM, SIU, BAR, DFT |
@@ -27,9 +27,9 @@ brightohir is a **pure-Python** SDK for healthcare data interoperability. No Jav
 | **V2 vocabulary maps** | **23 tables** | HL7 Table→FHIR CodeSystem URI |
 | **V2 versions** | **2.1 through 2.8.2** | All versions supported by hl7apy, auto-normalized |
 
-**What is NOT covered:** ~100 V2 segment types that are rarely seen in production (e.g. MFA, MFI master file segments, OM1-OM7 observation definition segments, CSR/CSP clinical study segments, EQU/ISD equipment segments). These segments are parsed by hl7apy but pass through the converter unconverted. You can extend the converter registry for any missing segment.
+**What is NOT covered:** ~70 V2 segment types that are rarely seen in production (e.g. OM1-OM7 observation definition segments, CSR/CSP clinical study segments, EQU/ISD equipment segments). These segments are parsed by hl7apy but pass through the converter unconverted. You can extend the converter registry for any missing segment.
 
-*~100 segment types hiếm gặp trong production (như MFA, OM1-OM7, CSR/CSP, EQU/ISD) không được convert tự động. Chúng được parse nhưng không chuyển đổi. Bạn có thể mở rộng registry cho bất kỳ segment nào còn thiếu.*
+*~70 segment types hiếm gặp trong production (như OM1-OM7, CSR/CSP, EQU/ISD) không được convert tự động. Chúng được parse nhưng không chuyển đổi. Bạn có thể mở rộng registry cho bất kỳ segment nào còn thiếu.*
 
 ### Privacy & compliance / Quyền riêng tư & tuân thủ
 
@@ -88,7 +88,7 @@ pip install brightohir[all]             # Everything / Tất cả
 git clone https://github.com/thusinh1969/brightohir.git
 cd brightohir
 pip install -e ".[dev]"
-pytest tests/ -v  # 84 tests
+pytest tests/ -v  # 129 tests
 ```
 
 **Requirements:** Python ≥ 3.10 — **Dependencies:** `fhir.resources` ≥ 8.0.0, `hl7apy` ≥ 1.3.5, `pyyaml` ≥ 6.0
@@ -130,7 +130,7 @@ print("✅ All working!")
 
 ```bash
 # Run full test suite
-pytest tests/ -v    # Expected: 84 passed
+pytest tests/ -v    # Expected: 129 passed
 ```
 
 ---
@@ -380,18 +380,17 @@ logging.basicConfig(level=logging.DEBUG)
 
 | Area | Limitation | Hạn chế |
 |---|---|---|
-| V2 segments | 19 of ~120 types. Remaining pass through unconverted. | 19/~120 loại. Còn lại truyền qua không chuyển đổi. |
-| R5→V2 | 15 of 19 converters have reverse. Missing: Account, PractitionerRole. | 15/19 có đảo ngược. Thiếu: Account, PractitionerRole. |
+| V2 segments | 51 of ~120 types (31 creators + 20 enrichers). Remaining ~70 rare/obsolete types pass through unconverted. | 51/~120 loại. ~70 loại hiếm/lỗi thời truyền qua không chuyển đổi. |
+| R5→V2 | 23 reverse converters. Missing niche types: Parameters, Account (guarantor). | 23 bộ đảo ngược. Thiếu vài loại đặc thù. |
 | MLLP | No built-in TLS. Use reverse proxy. | Không có TLS tích hợp. Dùng reverse proxy. |
 | Z-segments | Custom Z-segments ignored. Pre-process before convert. | Z-segment bỏ qua. Tiền xử lý trước convert. |
 | FHIR operations | No $validate, $process-message. Use fhirpy directly. | Không có $validate. Dùng fhirpy trực tiếp. |
 
 ### Roadmap
 
-- **v1.2** — RXR, PD1, IN2, IN3, ARV, AIG/AIL/AIP/AIS segments
-- **v1.3** — Z-segment extension framework, custom YAML mapping loader
-- **v1.4** — CDA ↔ FHIR R5 (Vietnamese discharge summaries)
-- **v2.0** — Async MLLP (asyncio), WebSocket, FHIR Subscription
+- **v2.1** — Z-segment extension framework, custom YAML mapping loader
+- **v2.2** — CDA ↔ FHIR R5 (Vietnamese discharge summaries)
+- **v3.0** — Async MLLP (asyncio), WebSocket, FHIR Subscription
 
 ---
 
@@ -405,9 +404,10 @@ logging.basicConfig(level=logging.DEBUG)
 ## Testing — Kiểm thử
 
 ```bash
-pytest tests/ -v                    # All 84 tests
-pytest tests/test_sdk.py -v         # Core (37 tests)
-pytest tests/test_v11.py -v         # v1.1 modules (47 tests)
+pytest tests/ -v                    # All 129 tests
+pytest tests/test_sdk.py -v         # Core: R5, R4↔R5, V2 basics (37 tests)
+pytest tests/test_v11.py -v         # v1.1: ACK, PII, MLLP, segment converters (47 tests)
+pytest tests/test_v20.py -v         # v2.0: Tier 2+3 creators, enrichers, reverse (45 tests)
 pytest tests/ --cov=brightohir      # With coverage
 ```
 
@@ -420,8 +420,8 @@ src/brightohir/
 ├── __init__.py          # 30 public exports
 ├── r5.py                # R5 factory — 157 resources
 ├── convert_r4r5.py      # R4 ↔ R5 — 59 transforms
-├── convert_v2.py        # V2 ↔ R5 — 19+15 converters
-├── registry.py          # 203 standard mappings
+├── convert_v2.py        # V2 ↔ R5 — 31 creators + 20 enrichers + 23 reverse
+├── registry.py          # 277 standard mappings
 ├── ack.py               # ACK/NAK generator
 ├── transport.py         # MLLP server + client
 ├── security.py          # PII masking (4 strategies)
@@ -444,6 +444,6 @@ GitHub: [github.com/thusinh1969/brightohir](https://github.com/thusinh1969/brigh
 
 ---
 
-*Built with inspiration from Long Châu Pharmacy Group (FPT Retail), who serving millions of patients across Vietnam everyday.*
+*Built with inspiration from Long Châu Pharmacy Group (FPT Retail), who serving millions of patients across Vietnam, everyday.*
 
-*Được xây dựng với cảm hứng từ Nhà thuốc Long Châu (FPT Retail), nơi phục vụ hàng triệu bệnh nhân trên khắp Việt Nam mỗi ngày.*
+*Được xây dựng với cảm hứng từ Nhà thuốc Long Châu (FPT Retail), nơi phục vụ hàng triệu bệnh nhân trên khắp Việt Nam, mỗi ngày.*
