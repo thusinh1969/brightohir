@@ -17,6 +17,9 @@ Production-grade Python SDK for **FHIR R5**, **R4↔R5 conversion**, and **HL7 V
 pip install fhir.resources hl7apy pyyaml    # core deps
 pip install fhirpy                           # optional: FHIR server client
 pip install fhirpathpy                       # optional: FHIRPath expressions
+
+# Main BrighTOHIR SDK
+pip install brightohir                       # optional: FHIRPath expressions
 ```
 
 ## Quick Start
