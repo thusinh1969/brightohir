@@ -46,6 +46,48 @@ from .registry import (
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Vietnamese code system integration (optional — auto-enriches if VN data loaded)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _vn_enrich_codeable_concept(cc: dict, system_key: str) -> dict:
+    """If VN data is loaded, enrich CodeableConcept with VN system URI + display.
+
+    Non-destructive: only adds system/display if missing. No-op if VN not loaded.
+    """
+    try:
+        from .vn import VN
+        if not VN.is_loaded:
+            return cc
+    except Exception:
+        return cc
+
+    codings = cc.get("coding", [])
+    if not codings:
+        return cc
+    coding = codings[0]
+    code = coding.get("code", "")
+    if not code:
+        return cc
+
+    try:
+        record = VN.get(system_key, code)
+    except (KeyError, RuntimeError):
+        return cc
+
+    if record:
+        if "system" not in coding:
+            from .vn import VN_CODE_SYSTEMS
+            meta = VN_CODE_SYSTEMS.get(system_key)
+            if meta:
+                coding["system"] = meta["system"]
+        if "display" not in coding:
+            display = record.get("display_vi") or record.get("display_en")
+            if display:
+                coding["display"] = display
+    return cc
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # V2 Datatype → FHIR Datatype converters
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -370,6 +412,7 @@ def _obx_to_observation(segment) -> dict:
         obs["code"] = _cwe_to_codeableconcept(code_field) if hasattr(code_field, "children") else {
             "coding": [{"code": _field_str(code_field)}]
         }
+        _vn_enrich_codeable_concept(obs["code"], "lab")
 
     # OBX-2: Value Type + OBX-5: Observation Value
     vtype = _get_field_value(segment, 2)
@@ -497,6 +540,7 @@ def _dg1_to_condition(segment) -> dict:
         condition["code"] = _cwe_to_codeableconcept(code) if hasattr(code, "children") else {
             "coding": [{"code": _field_str(code)}]
         }
+        _vn_enrich_codeable_concept(condition["code"], "icd10")
 
     # DG1-5: Diagnosis Date/Time
     dt = _get_field_value(segment, 5)
@@ -799,6 +843,7 @@ def _rxe_to_medicationrequest(segment) -> dict:
     code = _get_field_value(segment, 2)
     if code:
         mr["medication"] = {"concept": _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}}
+        _vn_enrich_codeable_concept(mr["medication"]["concept"], "drug")
     # RXE-3: Give Amount Minimum
     amt = _get_field_value(segment, 3)
     dose: dict[str, Any] = {}
@@ -849,6 +894,7 @@ def _rxd_to_medicationdispense(segment) -> dict:
     code = _get_field_value(segment, 2)
     if code:
         md["medication"] = {"concept": _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}}
+        _vn_enrich_codeable_concept(md["medication"]["concept"], "drug")
     # RXD-4: Actual Dispense Amount
     amt = _get_field_value(segment, 4)
     if amt:
@@ -888,6 +934,7 @@ def _rxo_to_medicationrequest(segment) -> dict:
     code = _get_field_value(segment, 1)
     if code:
         mr["medication"] = {"concept": _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}}
+        _vn_enrich_codeable_concept(mr["medication"]["concept"], "drug")
     # RXO-2: Requested Give Amount Minimum
     amt = _get_field_value(segment, 2)
     dose: dict[str, Any] = {}
@@ -1073,6 +1120,7 @@ def _pr1_to_procedure(segment) -> dict:
     code = _get_field_value(segment, 3)
     if code:
         proc["code"] = _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}
+        _vn_enrich_codeable_concept(proc["code"], "procedure")
     dt = _get_field_value(segment, 5)
     if dt:
         proc["performedDateTime"] = _ts_to_datetime(dt)
@@ -1121,6 +1169,7 @@ def _rxg_to_medicationadministration(segment) -> dict:
     code = _get_field_value(segment, 4)
     if code:
         ma["medication"] = {"concept": _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}}
+        _vn_enrich_codeable_concept(ma["medication"]["concept"], "drug")
     amt = _get_field_value(segment, 5)
     if amt:
         try:

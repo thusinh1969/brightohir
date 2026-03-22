@@ -303,12 +303,32 @@ class _VNRegistry:
         self._loaded = False
         self._data_dir: str | None = None
 
-    def load(self, data_dir: str | Path) -> dict[str, int]:
+    @staticmethod
+    def _bundled_data_dir() -> Path:
+        """Find the data/vn/ directory bundled inside the brightohir package."""
+        return Path(__file__).parent / "data" / "vn"
+
+    def load_bundled(self) -> dict[str, int]:
+        """Load bundled Vietnamese sample data (ships with pip package).
+
+        Usage:
+            from brightohir.vn import VN
+            VN.load_bundled()   # zero config — just works
+        """
+        return self.load(self._bundled_data_dir())
+
+    def load(self, data_dir: str | Path | None = None) -> dict[str, int]:
         """Load all JSONL files from data directory.
+
+        Args:
+            data_dir: Path to directory with JSONL files.
+                      If None, loads bundled data from package.
 
         Returns dict of {system_key: record_count}.
         Skips .sample.jsonl files unless no non-sample version exists.
         """
+        if data_dir is None:
+            data_dir = self._bundled_data_dir()
         data_dir = Path(data_dir)
         if not data_dir.is_dir():
             raise FileNotFoundError(f"Data directory not found: {data_dir}")

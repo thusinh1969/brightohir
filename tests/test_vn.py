@@ -7,8 +7,8 @@ import pytest
 from pathlib import Path
 from brightohir.vn import VN, VNCodeSystem, VN_CODE_SYSTEMS, _resolve_alias
 
-# Data directory with sample files
-DATA_DIR = Path(__file__).parent.parent / "src" / "brightohir" / "data" / "vn"
+# Data directory: use the bundled path inside the installed package
+DATA_DIR = VN._bundled_data_dir()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

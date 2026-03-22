@@ -36,7 +36,7 @@ R5_RESOURCES: dict[str, list[str]] = {
         "Composition", "DocumentReference", "DocumentManifest",
     ],
     "other_foundation": [
-        "Basic", "Binary", "Bundle", "Endpoint", "MessageHeader",
+        "Basic", "Binary", "Bundle", "MessageHeader",
         "OperationOutcome", "Parameters", "Subscription", "SubscriptionStatus",
         "SubscriptionTopic",
     ],

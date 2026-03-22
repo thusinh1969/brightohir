@@ -1,4 +1,4 @@
-# brightohir V2.0
+# brightohir
 
 ## Pure Python. HL7 V2.x ↔ FHIR R5. One `pip install`.
 ## Python thuần. HL7 V2.x ↔ FHIR R5. Một lệnh `pip install`.
@@ -13,7 +13,7 @@ brightohir is a **pure-Python** SDK for healthcare data interoperability. No Jav
 
 *brightohir là SDK **Python thuần** cho tương tác dữ liệu y tế. Không Java. Không .NET. Không dịch vụ ngoài. Chuyển đổi giữa HL7 V2.x (tin nhắn pipe chạy trong 95% bệnh viện toàn cầu) và FHIR R5 (chuẩn REST/JSON hiện đại được yêu cầu bởi US ONC, EU EHDS, và Bộ Y tế Việt Nam).*
 
-### Coverage / Phạm vi
+### Coverage — honest numbers / Phạm vi — số liệu thật
 
 | Area | Coverage | Detail |
 |---|---|---|
@@ -63,15 +63,15 @@ HL7 and FHIR are **international standards** maintained by HL7 International, us
 
 | Region | Standards in use | brightohir applicability |
 |---|---|---|
-| **Vietnam** | V2.x widely deployed in hospital HIS; FHIR adoption growing per MOH direction | V2↔R5 conversion, PII masking for Luật ANM |
+| **Vietnam** | V2.x widely deployed in hospital HIS; FHIR adoption growing per MOH direction | V2↔R5 conversion, PII masking, **built-in Vietnamese code systems** (ICD-10 VN, BHYT, drugs, labs, procedures) |
 | **United States** | FHIR R4 mandated by ONC 21st Century Cures; V2 in 95% of hospitals | R4→R5 migration, V2 legacy integration |
 | **European Union** | FHIR R5 for EHDS (European Health Data Space); GDPR requirements | R5 resource creation, PII masking |
 | **Australia, Canada, UK** | FHIR adoption mandated by national agencies | Full R5 support |
 | **Southeast Asia** | V2 dominant in hospital infrastructure; FHIR emerging | V2→R5 modernization path |
 
-The library has no region-specific dependencies. All code systems, vocabularies, and mappings follow HL7 International specifications. Local extensions (Vietnamese ICD codes, BHXH insurance codes) can be added via the extensible registry.
+The core library follows HL7 International specifications with no region-specific dependencies. For **Vietnam**, brightohir includes a dedicated `vn` module with 11 Vietnamese healthcare code systems per QĐ 4469/QĐ-BYT, QĐ 7603/QĐ-BYT, and QĐ 824/QĐ-BYT — covering ICD-10 VN, BHYT beneficiary types, drug codes, lab tests, procedures, medical supplies, blood products, hospital tiers, and provinces. When VN data is loaded, V2→R5 converters auto-enrich with Vietnamese system URIs and display names.
 
-*Thư viện không phụ thuộc vùng miền. Tất cả code system, vocabulary, mapping tuân theo HL7 International. Có thể mở rộng registry cho mã địa phương (ICD VN, mã BHXH).*
+*Thư viện cốt lõi tuân theo HL7 International. Riêng cho **Việt Nam**, brightohir có module `vn` với 11 hệ thống mã y tế theo QĐ 4469, QĐ 7603, QĐ 824 — bao gồm ICD-10 VN, đối tượng BHYT, mã thuốc, xét nghiệm, dịch vụ kỹ thuật, vật tư y tế, chế phẩm máu, hạng bệnh viện, và mã tỉnh/thành. Khi data VN được load, các converter V2→R5 tự động gắn URI hệ mã VN và tên hiển thị tiếng Việt.*
 
 ---
 
@@ -88,7 +88,7 @@ pip install brightohir[all]             # Everything / Tất cả
 git clone https://github.com/thusinh1969/brightohir.git
 cd brightohir
 pip install -e ".[dev]"
-pytest tests/ -v  # 129 tests
+pytest tests/ -v  # 170 tests
 ```
 
 **Requirements:** Python ≥ 3.10 — **Dependencies:** `fhir.resources` ≥ 8.0.0, `hl7apy` ≥ 1.3.5, `pyyaml` ≥ 6.0
@@ -130,7 +130,7 @@ print("✅ All working!")
 
 ```bash
 # Run full test suite
-pytest tests/ -v    # Expected: 129 passed
+pytest tests/ -v    # Expected: 170 passed
 ```
 
 ---
@@ -217,6 +217,61 @@ masked = PIIMasker(strategy="hash", salt="secret").mask_fhir(patient_dict)  # De
 masked = PIIMasker(strategy="pseudonym").mask_v2(v2_msg)    # Fake but valid
 masked = PIIMasker(strategy="partial").mask_fhir(patient_dict)  # N****n
 ```
+
+### 7. Vietnamese code systems / Hệ thống mã y tế Việt Nam
+
+```python
+from brightohir.vn import VN
+
+# Zero config — load bundled sample data (ships with pip package)
+# Không cần config — load data mẫu đi kèm package
+VN.load_bundled()                    # or VN.load() — same thing
+print(VN.stats())                    # → {"icd10": 5, "drug": 3, "lab": 3, "bhyt_object": 5}
+
+# Production — load full crawled data from your directory
+# Production — load data đầy đủ đã crawl
+# VN.load("path/to/your/data/vn/")  # → {"icd10": 14400, "drug": 20000, ...}
+
+# Lookup / Tra cứu
+icd = VN.icd10("J06.9")              # → {"code": "J06.9", "display_vi": "Nhiễm trùng hô hấp trên...", ...}
+drug = VN.drug("TD.0001")            # → {"code": "TD.0001", "atc": "N02BE01", ...}
+lab = VN.lab("XN.001")               # → {"code": "XN.001", "loinc": "718-7", ...}
+bhyt = VN.bhyt_object("3")           # → {"code": "3", "display_vi": "Trẻ em dưới 6 tuổi", "copay_percent": 0}
+
+# Search Vietnamese or English / Tìm kiếm tiếng Việt hoặc Anh
+results = VN.search("icd10", "đái tháo đường")   # → [{"code": "E11.9", ...}]
+results = VN.search("drug", "paracetamol")        # → [{"code": "TD.0001", ...}]
+
+# FHIR CodeableConcept — 1 line
+cc = VN.to_codeable_concept("icd10", "J06.9")
+# → {"coding": [{"system": "https://icd.kcb.vn/ICD-10-VN", "code": "J06.9",
+#     "display": "Nhiễm trùng hô hấp trên cấp tính, không đặc hiệu"}]}
+
+# Export full FHIR CodeSystem / Xuất toàn bộ CodeSystem FHIR
+cs = VN.to_fhir_codesystem("icd10")   # → {"resourceType": "CodeSystem", "count": 14400, ...}
+```
+
+**11 Vietnamese code systems / 11 hệ thống mã VN:**
+
+| Key | System | Source |
+|---|---|---|
+| `icd10` | ICD-10 Vietnam (~14,400 mã) | QĐ 4469/QĐ-BYT |
+| `yhct` | Y học cổ truyền U-codes (~2,000) | QĐ 6061/QĐ-BYT |
+| `drug` | Thuốc tân dược (~20,000+) | QĐ 7603 Phụ lục 5 |
+| `drug_trad` | Thuốc YHCT (~5,000+) | QĐ 7603 Phụ lục 6 |
+| `lab` | Xét nghiệm (~3,000+) | QĐ 7603 Phụ lục 11 |
+| `procedure` | Dịch vụ kỹ thuật (~8,000+) | QĐ 7603 Phụ lục 1 |
+| `supply` | Vật tư y tế (~10,000+) | QĐ 7603 Phụ lục 8 |
+| `blood` | Máu & chế phẩm (~200) | QĐ 7603 Phụ lục 9 |
+| `bhyt_object` | Đối tượng BHYT (~50) | QĐ 7603 + QĐ 2010/2025 |
+| `hospital_tier` | Hạng bệnh viện (~100) | NĐ 146/2018 |
+| `province` | Mã tỉnh/thành (63) | GSO.gov.vn |
+
+**Auto-enrichment:** When VN data is loaded, V2→R5 converters automatically enrich codes with Vietnamese system URIs and display names — DG1 (ICD-10), OBX (labs), RXE/RXD/RXO/RXG (drugs), PR1 (procedures). Zero code changes needed.
+
+*Khi data VN được load, các converter V2→R5 tự động gắn URI hệ mã VN và tên hiển thị — DG1 (ICD-10), OBX (xét nghiệm), RXE/RXD/RXO/RXG (thuốc), PR1 (DVKT). Không cần thay đổi code.*
+
+**Data format:** JSONL (one JSON per line). See [data/vn/SCHEMA.md](src/brightohir/data/vn/SCHEMA.md) for full spec. Sample data included in package; replace with full crawled data for production.
 
 ---
 
@@ -388,8 +443,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 ### Roadmap
 
-- **v2.1** — Z-segment extension framework, custom YAML mapping loader
-- **v2.2** — CDA ↔ FHIR R5 (Vietnamese discharge summaries)
+- **v2.2** — Z-segment extension framework, custom YAML mapping loader
+- **v2.3** — CDA ↔ FHIR R5 (Vietnamese discharge summaries)
 - **v3.0** — Async MLLP (asyncio), WebSocket, FHIR Subscription
 
 ---
@@ -398,16 +453,18 @@ logging.basicConfig(level=logging.DEBUG)
 
 - **[FHIR_R5_RESOURCES.md](FHIR_R5_RESOURCES.md)** — Complete list of all 157 FHIR R5 resources supported (100%) / *Danh sách đầy đủ 157 resource R5 (100%)*
 - **[CONVERSION_REFERENCE.md](CONVERSION_REFERENCE.md)** — All conversion mappings: V2→R5, R5→V2, R4↔R5, datatypes, vocabulary / *Tất cả mapping chuyển đổi*
+- **[data/vn/SCHEMA.md](src/brightohir/data/vn/SCHEMA.md)** — Vietnamese code system data schema (11 JSONL formats) / *Đặc tả dữ liệu 11 hệ thống mã y tế VN*
 
 ---
 
 ## Testing — Kiểm thử
 
 ```bash
-pytest tests/ -v                    # All 129 tests
+pytest tests/ -v                    # All 170 tests
 pytest tests/test_sdk.py -v         # Core: R5, R4↔R5, V2 basics (37 tests)
 pytest tests/test_v11.py -v         # v1.1: ACK, PII, MLLP, segment converters (47 tests)
 pytest tests/test_v20.py -v         # v2.0: Tier 2+3 creators, enrichers, reverse (45 tests)
+pytest tests/test_vn.py -v          # v2.1: Vietnamese code systems, auto-enrich (41 tests)
 pytest tests/ --cov=brightohir      # With coverage
 ```
 
@@ -417,14 +474,21 @@ pytest tests/ --cov=brightohir      # With coverage
 
 ```
 src/brightohir/
-├── __init__.py          # 30 public exports
+├── __init__.py          # 33 public exports
 ├── r5.py                # R5 factory — 157 resources
 ├── convert_r4r5.py      # R4 ↔ R5 — 59 transforms
 ├── convert_v2.py        # V2 ↔ R5 — 31 creators + 20 enrichers + 23 reverse
+├── vn.py                # Vietnamese code systems — 11 systems, JSONL loader, FHIR export
 ├── registry.py          # 277 standard mappings
 ├── ack.py               # ACK/NAK generator
 ├── transport.py         # MLLP server + client
 ├── security.py          # PII masking (4 strategies)
+├── data/vn/             # Vietnamese JSONL data (sample + full)
+│   ├── SCHEMA.md        # Data format specification
+│   ├── icd10_vn.jsonl   # ICD-10 Vietnam
+│   ├── drugs_western.jsonl
+│   ├── lab_tests.jsonl
+│   └── ...              # 11 files total
 └── py.typed             # PEP 561
 ```
 
@@ -473,6 +537,6 @@ GitHub: [github.com/thusinh1969/brightohir](https://github.com/thusinh1969/brigh
 
 ---
 
-*Built with inspiration from Long Châu Pharmacy Group (FPT Retail), who serving millions of patients across Vietnam everyday.*
+*Built with inspiration from Long Châu Pharmacy Group (FPT Retail), who serving millions of patients across Vietnam.*
 
-*Được xây dựng với cảm hứng từ Nhà thuốc Long Châu (FPT Retail), nơi phục vụ hàng triệu bệnh nhân trên khắp Việt Nam mỗi ngày.*
+*Được xây dựng với cảm hứng từ Nhà thuốc Long Châu (FPT Retail), nơi phục vụ hàng triệu bệnh nhân trên khắp Việt Nam.*
