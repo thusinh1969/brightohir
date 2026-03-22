@@ -596,18 +596,497 @@ def _msh_to_messageheader(segment) -> dict:
     return mh
 
 
+def _nk1_to_relatedperson(segment) -> dict:
+    """NK1 segment → RelatedPerson resource."""
+    rp: dict[str, Any] = {"resourceType": "RelatedPerson", "id": str(uuid.uuid4()), "active": True}
+    # NK1-2: Name
+    name_field = _get_field_value(segment, 2)
+    if name_field:
+        rp["name"] = [_xpn_to_humanname(name_field)]
+    # NK1-3: Relationship
+    rel = _get_field_value(segment, 3)
+    if rel:
+        rp["relationship"] = [_cwe_to_codeableconcept(rel) if hasattr(rel, "children") else {
+            "coding": [{"system": V2_TABLE_TO_FHIR_SYSTEM.get("HL70063", ""), "code": _field_str(rel)}]}]
+    # NK1-4: Address
+    addr = _get_field_value(segment, 4)
+    if addr:
+        rp["address"] = [_xad_to_address(addr)]
+    # NK1-5: Phone
+    phone = _get_field_value(segment, 5)
+    if phone:
+        rp["telecom"] = [_xtn_to_contactpoint(phone)]
+    # NK1-7: Contact Role
+    role = _get_field_value(segment, 7)
+    if role:
+        rp.setdefault("relationship", []).append({"coding": [{
+            "system": V2_TABLE_TO_FHIR_SYSTEM.get("HL70131", ""), "code": _field_str(role)}]})
+    # NK1-8: Start Date
+    start = _get_field_value(segment, 8)
+    if start:
+        dt = _ts_to_datetime(start)
+        if dt:
+            rp["period"] = {"start": dt}
+    return rp
+
+
+def _in1_to_coverage(segment) -> dict:
+    """IN1 segment → Coverage resource."""
+    cov: dict[str, Any] = {"resourceType": "Coverage", "id": str(uuid.uuid4()), "status": "active"}
+    # IN1-2: Insurance Plan ID
+    plan = _get_field_value(segment, 2)
+    if plan:
+        cov["type"] = _cwe_to_codeableconcept(plan) if hasattr(plan, "children") else {
+            "coding": [{"code": _field_str(plan)}]}
+    # IN1-3: Insurance Company ID
+    company = _get_field_value(segment, 3)
+    if company:
+        org_id = str(uuid.uuid4())
+        cov["_insurer_org"] = {"resourceType": "Organization", "id": org_id,
+                                "identifier": [_cx_to_identifier(company)]}
+        cov["insurer"] = {"reference": f"Organization/{org_id}"}
+    # IN1-4: Insurance Company Name
+    name = _get_field_value(segment, 4)
+    if name and "_insurer_org" in cov:
+        cov["_insurer_org"]["name"] = _field_str(name)
+    # IN1-12: Plan Effective Date
+    eff = _get_field_value(segment, 12)
+    if eff:
+        dt = _ts_to_datetime(eff)
+        if dt:
+            cov.setdefault("period", {})["start"] = dt
+    # IN1-13: Plan Expiration Date
+    exp = _get_field_value(segment, 13)
+    if exp:
+        dt = _ts_to_datetime(exp)
+        if dt:
+            cov.setdefault("period", {})["end"] = dt
+    # IN1-15: Plan Type
+    ptype = _get_field_value(segment, 15)
+    if ptype:
+        cov["class"] = [{"type": {"coding": [{"code": "plan"}]}, "value": {"coding": [{"code": _field_str(ptype)}]}}]
+    # IN1-36: Policy Number
+    policy = _get_field_value(segment, 36)
+    if policy:
+        cov["identifier"] = [{"value": _field_str(policy)}]
+    # IN1-46: Subscriber ID (repeating)
+    sub = _get_field_value(segment, 46)
+    if not sub:
+        sub = _get_field_value(segment, 49)
+    if sub:
+        cov["subscriberId"] = _field_str(sub)
+    cov["kind"] = "insurance"
+    return cov
+
+
+def _gt1_to_account(segment) -> dict:
+    """GT1 segment → Account resource (guarantor)."""
+    acct: dict[str, Any] = {"resourceType": "Account", "id": str(uuid.uuid4()), "status": "active"}
+    # GT1-3: Guarantor Name → create embedded RelatedPerson
+    name = _get_field_value(segment, 3)
+    rp_id = str(uuid.uuid4())
+    rp: dict[str, Any] = {"resourceType": "RelatedPerson", "id": rp_id, "active": True}
+    if name:
+        rp["name"] = [_xpn_to_humanname(name)]
+    # GT1-5: Guarantor Address
+    addr = _get_field_value(segment, 5)
+    if addr:
+        rp["address"] = [_xad_to_address(addr)]
+    # GT1-6: Guarantor Phone Home
+    phone = _get_field_value(segment, 6)
+    if phone:
+        rp["telecom"] = [_xtn_to_contactpoint(phone)]
+    acct["_guarantor_rp"] = rp
+    acct["guarantor"] = [{"party": {"reference": f"RelatedPerson/{rp_id}"}}]
+    return acct
+
+
+def _orc_to_servicerequest(segment) -> dict:
+    """ORC segment → ServiceRequest resource."""
+    sr: dict[str, Any] = {"resourceType": "ServiceRequest", "id": str(uuid.uuid4())}
+    # ORC-1: Order Control → status/intent
+    ctrl = _get_field_value(segment, 1)
+    if ctrl:
+        ctrl_str = _field_str(ctrl)
+        sr["status"] = {"NW": "active", "CA": "revoked", "DC": "completed",
+                        "HD": "on-hold", "SC": "active", "RP": "active",
+                        "OC": "revoked", "CR": "active"}.get(ctrl_str, "active")
+    sr["intent"] = "order"
+    # ORC-2: Placer Order Number → identifier
+    placer = _get_field_value(segment, 2)
+    if placer:
+        sr.setdefault("identifier", []).append({**_cx_to_identifier(placer), "use": "usual"} if hasattr(placer, "children") else {"value": _field_str(placer), "use": "usual"})
+    # ORC-3: Filler Order Number → identifier
+    filler = _get_field_value(segment, 3)
+    if filler:
+        sr.setdefault("identifier", []).append({**_cx_to_identifier(filler), "use": "official"} if hasattr(filler, "children") else {"value": _field_str(filler), "use": "official"})
+    # ORC-9: Date/Time of Transaction
+    txdt = _get_field_value(segment, 9)
+    if txdt:
+        sr["authoredOn"] = _ts_to_datetime(txdt)
+    # ORC-12: Ordering Provider
+    prov = _get_field_value(segment, 12)
+    if prov:
+        comps = _get_components(prov)
+        if comps:
+            sr["requester"] = {"display": " ".join(str(c) for c in comps[:3] if c)}
+    # ORC-5: Order Status
+    ostatus = _get_field_value(segment, 5)
+    if ostatus:
+        s = _field_str(ostatus)
+        sr["status"] = {"A": "active", "CA": "revoked", "CM": "completed",
+                        "DC": "revoked", "HD": "on-hold", "IP": "active",
+                        "SC": "active"}.get(s, sr.get("status", "active"))
+    # ORC-16: Order Control Code Reason
+    reason = _get_field_value(segment, 16)
+    if reason:
+        sr["reasonCode"] = [_cwe_to_codeableconcept(reason)] if hasattr(reason, "children") else [{"text": _field_str(reason)}]
+    # ORC-15: Order Effective Date/Time
+    eff = _get_field_value(segment, 15)
+    if eff:
+        sr["occurrenceDateTime"] = _ts_to_datetime(eff)
+    return sr
+
+
+def _obr_to_diagnosticreport(segment) -> dict:
+    """OBR segment → DiagnosticReport resource."""
+    dr: dict[str, Any] = {"resourceType": "DiagnosticReport", "id": str(uuid.uuid4())}
+    # OBR-2: Placer Order Number
+    placer = _get_field_value(segment, 2)
+    if placer:
+        dr["identifier"] = [{"value": _field_str(placer), "use": "usual"}]
+    # OBR-4: Universal Service Identifier → code
+    code = _get_field_value(segment, 4)
+    if code:
+        dr["code"] = _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}
+    # OBR-7: Observation Date/Time
+    obsdt = _get_field_value(segment, 7)
+    if obsdt:
+        dt = _ts_to_datetime(obsdt)
+        if dt:
+            dr["effectiveDateTime"] = dt
+    # OBR-22: Results Rpt/Status Chng Date
+    rptdt = _get_field_value(segment, 22)
+    if rptdt:
+        dr["issued"] = _ts_to_datetime(rptdt)
+    # OBR-25: Result Status
+    rstat = _get_field_value(segment, 25)
+    if rstat:
+        s = _field_str(rstat)
+        dr["status"] = {"F": "final", "P": "preliminary", "C": "corrected",
+                        "A": "partial", "R": "registered", "I": "registered",
+                        "O": "registered", "X": "cancelled"}.get(s, "unknown")
+    else:
+        dr["status"] = "unknown"
+    # OBR-16: Ordering Provider
+    prov = _get_field_value(segment, 16)
+    if prov:
+        comps = _get_components(prov)
+        if comps:
+            dr["performer"] = [{"display": " ".join(str(c) for c in comps[:3] if c)}]
+    # OBR-24: Diagnostic Serv Sect ID
+    sect = _get_field_value(segment, 24)
+    if sect:
+        dr["category"] = [{"coding": [{"code": _field_str(sect)}]}]
+    return dr
+
+
+def _rxe_to_medicationrequest(segment) -> dict:
+    """RXE segment → MedicationRequest (encoded order)."""
+    mr: dict[str, Any] = {"resourceType": "MedicationRequest", "id": str(uuid.uuid4()),
+                           "status": "active", "intent": "order"}
+    # RXE-2: Give Code → medication
+    code = _get_field_value(segment, 2)
+    if code:
+        mr["medication"] = {"concept": _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}}
+    # RXE-3: Give Amount Minimum
+    amt = _get_field_value(segment, 3)
+    dose: dict[str, Any] = {}
+    if amt:
+        try:
+            dose["doseAndRate"] = [{"doseQuantity": {"value": float(_field_str(amt))}}]
+        except ValueError:
+            pass
+    # RXE-5: Give Units
+    units = _get_field_value(segment, 5)
+    if units and "doseAndRate" in dose:
+        dose["doseAndRate"][0]["doseQuantity"]["unit"] = _field_str(units)
+    # RXE-1: Quantity/Timing → text
+    timing = _get_field_value(segment, 1)
+    if timing:
+        dose["text"] = _field_str(timing)
+    if dose:
+        mr["dosageInstruction"] = [dose]
+    # RXE-10: Dispense Amount
+    disp_amt = _get_field_value(segment, 10)
+    if disp_amt:
+        try:
+            mr.setdefault("dispenseRequest", {})["quantity"] = {"value": float(_field_str(disp_amt))}
+        except ValueError:
+            pass
+    # RXE-11: Dispense Units
+    disp_units = _get_field_value(segment, 11)
+    if disp_units and "dispenseRequest" in mr:
+        mr["dispenseRequest"]["quantity"]["unit"] = _field_str(disp_units)
+    # RXE-12: Number of Refills
+    refills = _get_field_value(segment, 12)
+    if refills:
+        try:
+            mr.setdefault("dispenseRequest", {})["numberOfRepeatsAllowed"] = int(_field_str(refills))
+        except ValueError:
+            pass
+    # RXE-15: Prescription Number → identifier
+    rxnum = _get_field_value(segment, 15)
+    if rxnum:
+        mr["identifier"] = [{"value": _field_str(rxnum), "use": "official"}]
+    return mr
+
+
+def _rxd_to_medicationdispense(segment) -> dict:
+    """RXD segment → MedicationDispense resource."""
+    md: dict[str, Any] = {"resourceType": "MedicationDispense", "id": str(uuid.uuid4()), "status": "completed"}
+    # RXD-2: Dispense/Give Code
+    code = _get_field_value(segment, 2)
+    if code:
+        md["medication"] = {"concept": _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}}
+    # RXD-4: Actual Dispense Amount
+    amt = _get_field_value(segment, 4)
+    if amt:
+        try:
+            md["quantity"] = {"value": float(_field_str(amt))}
+        except ValueError:
+            pass
+    # RXD-5: Actual Dispense Units
+    units = _get_field_value(segment, 5)
+    if units and "quantity" in md:
+        md["quantity"]["unit"] = _field_str(units)
+    # RXD-3: Date/Time Dispensed
+    dtdisp = _get_field_value(segment, 3)
+    if dtdisp:
+        md["whenHandedOver"] = _ts_to_datetime(dtdisp)
+    # RXD-7: Prescription Number → authorizingPrescription
+    rxnum = _get_field_value(segment, 7)
+    if rxnum:
+        md["authorizingPrescription"] = [{"identifier": {"value": _field_str(rxnum)}}]
+    # RXD-10: Dispenser → performer
+    disp = _get_field_value(segment, 10)
+    if disp:
+        comps = _get_components(disp)
+        md["performer"] = [{"actor": {"display": " ".join(str(c) for c in comps[:3] if c)}}]
+    # RXD-20: Substance Lot Number
+    lot = _get_field_value(segment, 20)
+    if lot:
+        md["_lotNumber"] = _field_str(lot)
+    return md
+
+
+def _rxo_to_medicationrequest(segment) -> dict:
+    """RXO segment → MedicationRequest (original order)."""
+    mr: dict[str, Any] = {"resourceType": "MedicationRequest", "id": str(uuid.uuid4()),
+                           "status": "active", "intent": "order"}
+    # RXO-1: Requested Give Code
+    code = _get_field_value(segment, 1)
+    if code:
+        mr["medication"] = {"concept": _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}}
+    # RXO-2: Requested Give Amount Minimum
+    amt = _get_field_value(segment, 2)
+    dose: dict[str, Any] = {}
+    if amt:
+        try:
+            dose["doseAndRate"] = [{"doseQuantity": {"value": float(_field_str(amt))}}]
+        except ValueError:
+            pass
+    # RXO-4: Requested Give Units
+    units = _get_field_value(segment, 4)
+    if units and "doseAndRate" in dose:
+        dose["doseAndRate"][0]["doseQuantity"]["unit"] = _field_str(units)
+    if dose:
+        mr["dosageInstruction"] = [dose]
+    # RXO-10: Requested Dispense Amount
+    disp = _get_field_value(segment, 10)
+    if disp:
+        try:
+            mr.setdefault("dispenseRequest", {})["quantity"] = {"value": float(_field_str(disp))}
+        except ValueError:
+            pass
+    # RXO-12: Number of Refills
+    refills = _get_field_value(segment, 12)
+    if refills:
+        try:
+            mr.setdefault("dispenseRequest", {})["numberOfRepeatsAllowed"] = int(_field_str(refills))
+        except ValueError:
+            pass
+    return mr
+
+
+def _spm_to_specimen(segment) -> dict:
+    """SPM segment → Specimen resource."""
+    spec: dict[str, Any] = {"resourceType": "Specimen", "id": str(uuid.uuid4())}
+    # SPM-2: Specimen ID
+    sid = _get_field_value(segment, 2)
+    if sid:
+        spec["identifier"] = [{"value": _field_str(sid)}]
+    # SPM-4: Specimen Type
+    stype = _get_field_value(segment, 4)
+    if stype:
+        spec["type"] = _cwe_to_codeableconcept(stype) if hasattr(stype, "children") else {
+            "coding": [{"system": V2_TABLE_TO_FHIR_SYSTEM.get("HL70487", ""), "code": _field_str(stype)}]}
+    # SPM-17: Collection Date/Time → collection.collectedDateTime
+    cdt = _get_field_value(segment, 17)
+    if cdt:
+        spec["collection"] = {"collectedDateTime": _ts_to_datetime(cdt)}
+    # SPM-8: Specimen Source Site
+    site = _get_field_value(segment, 8)
+    if site:
+        spec.setdefault("collection", {})["bodySite"] = {
+            "concept": _cwe_to_codeableconcept(site) if hasattr(site, "children") else {"coding": [{"code": _field_str(site)}]}}
+    # SPM-11: Specimen Role
+    role = _get_field_value(segment, 11)
+    if role:
+        spec["role"] = [_cwe_to_codeableconcept(role) if hasattr(role, "children") else {"coding": [{"code": _field_str(role)}]}]
+    # SPM-14: Specimen Description
+    desc = _get_field_value(segment, 14)
+    if desc:
+        spec["note"] = [{"text": _field_str(desc)}]
+    # SPM-20: Specimen Availability
+    avail = _get_field_value(segment, 20)
+    if avail:
+        spec["status"] = {"Y": "available", "N": "unavailable"}.get(_field_str(avail), "available")
+    return spec
+
+
+def _sch_to_appointment(segment) -> dict:
+    """SCH segment → Appointment resource."""
+    appt: dict[str, Any] = {"resourceType": "Appointment", "id": str(uuid.uuid4())}
+    # SCH-1: Placer Appointment ID
+    pid = _get_field_value(segment, 1)
+    if pid:
+        appt["identifier"] = [{"value": _field_str(pid), "use": "usual"}]
+    # SCH-2: Filler Appointment ID
+    fid = _get_field_value(segment, 2)
+    if fid:
+        appt.setdefault("identifier", []).append({"value": _field_str(fid), "use": "official"})
+    # SCH-7: Appointment Reason
+    reason = _get_field_value(segment, 7)
+    if reason:
+        appt["reasonCode"] = [_cwe_to_codeableconcept(reason) if hasattr(reason, "children") else {"text": _field_str(reason)}]
+    # SCH-11: Appointment Timing Quantity → start/end
+    timing = _get_field_value(segment, 11)
+    if timing:
+        comps = _get_components(timing)
+        if comps and comps[0]:
+            dt = _ts_to_datetime(type("F", (), {"value": str(comps[0])})())
+            if dt:
+                appt["start"] = dt
+    # SCH-25: Filler Status Code → status
+    fstat = _get_field_value(segment, 25)
+    if fstat:
+        s = _field_str(fstat)
+        appt["status"] = {"Booked": "booked", "Pending": "proposed", "Complete": "fulfilled",
+                          "Cancelled": "cancelled", "Noshow": "noshow"}.get(s, "proposed")
+    else:
+        appt["status"] = "proposed"
+    # SCH-6: Event Reason
+    ereason = _get_field_value(segment, 6)
+    if ereason:
+        appt["description"] = _field_str(ereason)
+    return appt
+
+
+def _txa_to_documentreference(segment) -> dict:
+    """TXA segment → DocumentReference resource."""
+    dr: dict[str, Any] = {"resourceType": "DocumentReference", "id": str(uuid.uuid4()), "status": "current"}
+    # TXA-2: Document Type
+    dtype = _get_field_value(segment, 2)
+    if dtype:
+        dr["type"] = _cwe_to_codeableconcept(dtype) if hasattr(dtype, "children") else {
+            "coding": [{"code": _field_str(dtype)}]}
+    # TXA-3: Document Content Presentation
+    pres = _get_field_value(segment, 3)
+    if pres:
+        p = _field_str(pres)
+        dr["content"] = [{"attachment": {"contentType": {
+            "TX": "text/plain", "FT": "text/plain", "PN": "text/plain",
+            "AU": "audio/basic", "IM": "image/jpeg", "AP": "application/pdf",
+        }.get(p, "application/octet-stream")}}]
+    # TXA-4: Activity Date/Time
+    adt = _get_field_value(segment, 4)
+    if adt:
+        dr["date"] = _ts_to_datetime(adt)
+    # TXA-5: Primary Activity Provider
+    prov = _get_field_value(segment, 5)
+    if prov:
+        comps = _get_components(prov)
+        if comps:
+            dr["author"] = [{"display": " ".join(str(c) for c in comps[:3] if c)}]
+    # TXA-12: Unique Document Number → identifier
+    docnum = _get_field_value(segment, 12)
+    if docnum:
+        dr["identifier"] = [{"value": _field_str(docnum)}]
+    # TXA-17: Document Completion Status
+    cstat = _get_field_value(segment, 17)
+    if cstat:
+        s = _field_str(cstat)
+        dr["docStatus"] = {"DO": "preliminary", "IN": "preliminary", "IP": "preliminary",
+                           "AU": "final", "DI": "amended", "LA": "final",
+                           "PA": "preliminary"}.get(s, "preliminary")
+    return dr
+
+
+def _prt_to_practitionerrole(segment) -> dict:
+    """PRT segment → PractitionerRole resource."""
+    pr: dict[str, Any] = {"resourceType": "PractitionerRole", "id": str(uuid.uuid4()), "active": True}
+    # PRT-4: Role of Participation
+    role = _get_field_value(segment, 4)
+    if role:
+        pr["code"] = [_cwe_to_codeableconcept(role) if hasattr(role, "children") else {
+            "coding": [{"system": V2_TABLE_TO_FHIR_SYSTEM.get("HL70443", ""), "code": _field_str(role)}]}]
+    # PRT-5: Person → practitioner reference
+    person = _get_field_value(segment, 5)
+    if person:
+        comps = _get_components(person)
+        pract_id = str(uuid.uuid4())
+        pr["practitioner"] = {"reference": f"Practitioner/{pract_id}",
+                              "display": " ".join(str(c) for c in comps[:3] if c)}
+    # PRT-6: Provider Type
+    ptype = _get_field_value(segment, 6)
+    if ptype:
+        pr["specialty"] = [_cwe_to_codeableconcept(ptype) if hasattr(ptype, "children") else {"coding": [{"code": _field_str(ptype)}]}]
+    # PRT-11: Begin Date/Time
+    bdt = _get_field_value(segment, 11)
+    if bdt:
+        pr["period"] = {"start": _ts_to_datetime(bdt)}
+    # PRT-12: End Date/Time
+    edt = _get_field_value(segment, 12)
+    if edt:
+        pr.setdefault("period", {})["end"] = _ts_to_datetime(edt)
+    return pr
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Segment converter registry
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _SEGMENT_CONVERTERS: dict[str, tuple[str, Any]] = {
+    "MSH": ("MessageHeader", _msh_to_messageheader),
     "PID": ("Patient", _pid_to_patient),
     "PV1": ("Encounter", _pv1_to_encounter),
     "OBX": ("Observation", _obx_to_observation),
     "AL1": ("AllergyIntolerance", _al1_to_allergy),
     "DG1": ("Condition", _dg1_to_condition),
     "RXA": ("Immunization", _rxa_to_immunization),
-    "MSH": ("MessageHeader", _msh_to_messageheader),
+    "NK1": ("RelatedPerson", _nk1_to_relatedperson),
+    "IN1": ("Coverage", _in1_to_coverage),
+    "GT1": ("Account", _gt1_to_account),
+    "ORC": ("ServiceRequest", _orc_to_servicerequest),
+    "OBR": ("DiagnosticReport", _obr_to_diagnosticreport),
+    "RXE": ("MedicationRequest", _rxe_to_medicationrequest),
+    "RXD": ("MedicationDispense", _rxd_to_medicationdispense),
+    "RXO": ("MedicationRequest", _rxo_to_medicationrequest),
+    "SPM": ("Specimen", _spm_to_specimen),
+    "SCH": ("Appointment", _sch_to_appointment),
+    "TXA": ("DocumentReference", _txa_to_documentreference),
+    "PRT": ("PractitionerRole", _prt_to_practitionerrole),
 }
 
 
@@ -923,18 +1402,59 @@ class V2Converter:
             patient_ref = {"reference": f"Patient/{pid}"}
 
         if patient_ref:
-            for rt in ("Encounter", "Observation", "AllergyIntolerance",
-                       "Condition", "Immunization", "MedicationRequest"):
+            for rt in ("Encounter", "Observation", "AllergyIntolerance", "Condition",
+                       "Immunization", "MedicationRequest", "MedicationDispense",
+                       "ServiceRequest", "DiagnosticReport", "Coverage", "Specimen",
+                       "DocumentReference", "Appointment"):
                 for r in self._resources.get(rt, []):
-                    r["subject"] = patient_ref
+                    if rt in ("Coverage",):
+                        r["beneficiary"] = patient_ref
+                    elif rt in ("Appointment",):
+                        r.setdefault("participant", []).append({"actor": patient_ref, "status": "accepted"})
+                    else:
+                        r["subject"] = patient_ref
+            for r in self._resources.get("RelatedPerson", []):
+                r["patient"] = patient_ref
+            for r in self._resources.get("Account", []):
+                r.setdefault("subject", []).append(patient_ref)
 
-        # Encounter → Observation.encounter
+        # Encounter reference
         if "Encounter" in self._resources and self._resources["Encounter"]:
             enc_id = self._resources["Encounter"][0]["id"]
             enc_ref = {"reference": f"Encounter/{enc_id}"}
-            for rt in ("Observation", "Condition", "AllergyIntolerance"):
+            for rt in ("Observation", "Condition", "AllergyIntolerance", "Immunization",
+                       "MedicationRequest", "MedicationDispense", "ServiceRequest",
+                       "DiagnosticReport", "Specimen", "DocumentReference"):
                 for r in self._resources.get(rt, []):
                     r["encounter"] = enc_ref
+
+        # ServiceRequest → DiagnosticReport.basedOn
+        if "ServiceRequest" in self._resources and self._resources["ServiceRequest"]:
+            sr_id = self._resources["ServiceRequest"][0]["id"]
+            sr_ref = {"reference": f"ServiceRequest/{sr_id}"}
+            for r in self._resources.get("DiagnosticReport", []):
+                r["basedOn"] = [sr_ref]
+            for r in self._resources.get("Specimen", []):
+                r.setdefault("request", []).append(sr_ref)
+
+        # DiagnosticReport → Observation.derivedFrom / result
+        if "DiagnosticReport" in self._resources and self._resources["DiagnosticReport"]:
+            dr = self._resources["DiagnosticReport"][0]
+            obs_refs = [{"reference": f"Observation/{o['id']}"} for o in self._resources.get("Observation", [])]
+            if obs_refs:
+                dr["result"] = obs_refs
+
+        # Extract embedded Organization from Coverage._insurer_org
+        for cov in self._resources.get("Coverage", []):
+            if "_insurer_org" in cov:
+                org = cov.pop("_insurer_org")
+                self._resources.setdefault("Organization", []).append(org)
+
+        # Extract embedded RelatedPerson from Account._guarantor_rp
+        for acct in self._resources.get("Account", []):
+            if "_guarantor_rp" in acct:
+                rp = acct.pop("_guarantor_rp")
+                self._resources.setdefault("RelatedPerson", []).append(rp)
 
     def _build_bundle(self, resources: list[dict], message_type: str | None) -> dict:
         """Assemble the final FHIR Bundle."""
@@ -1036,9 +1556,319 @@ def _encounter_to_pv1(encounter: dict) -> str:
     return "|".join(fields)
 
 
+def _fhir_dt_to_v2(dt: str | None) -> str:
+    """FHIR dateTime → V2 TS format."""
+    if not dt:
+        return ""
+    return dt.replace("-", "").replace("T", "").replace(":", "").replace("Z", "")[:14]
+
+
+def _fhir_code_to_v2(cc: dict | None) -> str:
+    """CodeableConcept → V2 CWE format (code^display^system)."""
+    if not cc:
+        return ""
+    codings = cc.get("coding", [])
+    if not codings:
+        return cc.get("text", "")
+    c = codings[0]
+    parts = [c.get("code", ""), c.get("display", ""), c.get("system", "")]
+    return "^".join(parts).rstrip("^")
+
+
+def _observation_to_obx(obs: dict) -> str:
+    """Observation → OBX segment."""
+    fields = [""] * 20
+    fields[0] = "OBX"
+    fields[1] = "1"
+    # OBX-3: code
+    fields[3] = _fhir_code_to_v2(obs.get("code"))
+    # Determine value type and value
+    if "valueQuantity" in obs:
+        fields[2] = "NM"
+        vq = obs["valueQuantity"]
+        fields[5] = str(vq.get("value", ""))
+        fields[6] = vq.get("unit", "")
+    elif "valueString" in obs:
+        fields[2] = "ST"
+        fields[5] = obs["valueString"]
+    elif "valueCodeableConcept" in obs:
+        fields[2] = "CWE"
+        fields[5] = _fhir_code_to_v2(obs["valueCodeableConcept"])
+    elif "valueDateTime" in obs:
+        fields[2] = "DT"
+        fields[5] = _fhir_dt_to_v2(obs.get("valueDateTime"))
+    # OBX-7: reference range
+    rr = obs.get("referenceRange", [])
+    if rr:
+        fields[7] = rr[0].get("text", "")
+    # OBX-8: interpretation
+    interp = obs.get("interpretation", [])
+    if interp:
+        fields[8] = interp[0].get("coding", [{}])[0].get("code", "")
+    # OBX-11: status
+    status = obs.get("status", "")
+    fields[11] = {"final": "F", "preliminary": "P", "corrected": "C", "registered": "R",
+                  "cancelled": "X", "entered-in-error": "W", "unknown": "U"}.get(status, "F")
+    # OBX-14: effective datetime
+    fields[14] = _fhir_dt_to_v2(obs.get("effectiveDateTime"))
+    return "|".join(fields)
+
+
+def _allergy_to_al1(allergy: dict) -> str:
+    """AllergyIntolerance → AL1 segment."""
+    fields = [""] * 7
+    fields[0] = "AL1"
+    fields[1] = "1"
+    # AL1-2: type → allergen type
+    cats = allergy.get("category", [])
+    if cats:
+        fields[2] = {"medication": "DA", "food": "FA", "environment": "EA", "biologic": "PA"}.get(cats[0], "DA")
+    # AL1-3: code
+    fields[3] = _fhir_code_to_v2(allergy.get("code"))
+    # AL1-4: severity
+    crit = allergy.get("criticality", "")
+    fields[4] = {"high": "SV", "low": "MI", "unable-to-assess": "U"}.get(crit, "")
+    # AL1-5: reaction
+    reactions = allergy.get("reaction", [])
+    if reactions:
+        manifests = reactions[0].get("manifestation", [])
+        if manifests:
+            fields[5] = manifests[0].get("concept", {}).get("text", "")
+    # AL1-6: onset
+    fields[6] = _fhir_dt_to_v2(allergy.get("onsetDateTime"))
+    return "|".join(fields)
+
+
+def _condition_to_dg1(condition: dict) -> str:
+    """Condition → DG1 segment."""
+    fields = [""] * 7
+    fields[0] = "DG1"
+    fields[1] = "1"
+    fields[3] = _fhir_code_to_v2(condition.get("code"))
+    fields[5] = _fhir_dt_to_v2(condition.get("onsetDateTime"))
+    cats = condition.get("category", [])
+    if cats:
+        c = cats[0].get("coding", [{}])[0].get("code", "")
+        fields[6] = {"encounter-diagnosis": "A", "problem-list-item": "F"}.get(c, "A")
+    return "|".join(fields)
+
+
+def _immunization_to_rxa(imm: dict) -> str:
+    """Immunization → RXA segment."""
+    fields = [""] * 22
+    fields[0] = "RXA"
+    fields[1] = "0"
+    fields[2] = "1"
+    fields[3] = _fhir_dt_to_v2(imm.get("occurrenceDateTime"))
+    fields[4] = fields[3]  # End = Start for single admin
+    fields[5] = _fhir_code_to_v2(imm.get("vaccineCode"))
+    dq = imm.get("doseQuantity", {})
+    if dq:
+        fields[6] = str(dq.get("value", ""))
+        fields[7] = dq.get("unit", "")
+    fields[9] = {"completed": "CP", "not-done": "RE"}.get(imm.get("status", ""), "CP")
+    fields[15] = imm.get("lotNumber", "")
+    fields[16] = _fhir_dt_to_v2(imm.get("expirationDate"))
+    return "|".join(fields)
+
+
+def _relatedperson_to_nk1(rp: dict) -> str:
+    """RelatedPerson → NK1 segment."""
+    fields = [""] * 8
+    fields[0] = "NK1"
+    fields[1] = "1"
+    names = rp.get("name", [])
+    if names:
+        n = names[0]
+        fields[2] = f"{n.get('family', '')}^{(n.get('given', ['']))[0] if n.get('given') else ''}"
+    rels = rp.get("relationship", [])
+    if rels:
+        fields[3] = _fhir_code_to_v2(rels[0])
+    addrs = rp.get("address", [])
+    if addrs:
+        a = addrs[0]
+        line = a.get("line", [""])[0] if a.get("line") else ""
+        fields[4] = f"{line}^^{a.get('city', '')}^{a.get('state', '')}^{a.get('postalCode', '')}^{a.get('country', '')}"
+    telecoms = rp.get("telecom", [])
+    if telecoms:
+        fields[5] = telecoms[0].get("value", "")
+    return "|".join(fields)
+
+
+def _coverage_to_in1(cov: dict) -> str:
+    """Coverage → IN1 segment."""
+    fields = [""] * 50
+    fields[0] = "IN1"
+    fields[1] = "1"
+    fields[2] = _fhir_code_to_v2(cov.get("type"))
+    idents = cov.get("identifier", [])
+    if idents:
+        fields[36] = idents[0].get("value", "")
+    period = cov.get("period", {})
+    fields[12] = _fhir_dt_to_v2(period.get("start"))
+    fields[13] = _fhir_dt_to_v2(period.get("end"))
+    if cov.get("subscriberId"):
+        fields[49] = cov["subscriberId"]
+    return "|".join(fields)
+
+
+def _servicerequest_to_orc(sr: dict) -> str:
+    """ServiceRequest → ORC segment."""
+    fields = [""] * 17
+    fields[0] = "ORC"
+    status = sr.get("status", "")
+    fields[1] = {"active": "NW", "revoked": "CA", "completed": "DC",
+                 "on-hold": "HD"}.get(status, "NW")
+    idents = sr.get("identifier", [])
+    for ident in idents:
+        if ident.get("use") == "usual":
+            fields[2] = ident.get("value", "")
+        elif ident.get("use") == "official":
+            fields[3] = ident.get("value", "")
+    fields[5] = {"active": "IP", "revoked": "CA", "completed": "CM",
+                 "on-hold": "HD"}.get(status, "IP")
+    fields[9] = _fhir_dt_to_v2(sr.get("authoredOn"))
+    req = sr.get("requester", {})
+    if req:
+        fields[12] = req.get("display", "")
+    return "|".join(fields)
+
+
+def _medicationrequest_to_rxe(mr: dict) -> str:
+    """MedicationRequest → RXE segment."""
+    fields = [""] * 16
+    fields[0] = "RXE"
+    med = mr.get("medication", {})
+    if "concept" in med:
+        fields[2] = _fhir_code_to_v2(med["concept"])
+    dosages = mr.get("dosageInstruction", [])
+    if dosages:
+        d = dosages[0]
+        fields[1] = d.get("text", "")
+        dr = d.get("doseAndRate", [{}])
+        if dr:
+            dq = dr[0].get("doseQuantity", {})
+            fields[3] = str(dq.get("value", ""))
+            fields[5] = dq.get("unit", "")
+    disp = mr.get("dispenseRequest", {})
+    if "quantity" in disp:
+        fields[10] = str(disp["quantity"].get("value", ""))
+        fields[11] = disp["quantity"].get("unit", "")
+    if "numberOfRepeatsAllowed" in disp:
+        fields[12] = str(disp["numberOfRepeatsAllowed"])
+    idents = mr.get("identifier", [])
+    if idents:
+        fields[15] = idents[0].get("value", "")
+    return "|".join(fields)
+
+
+def _medicationdispense_to_rxd(md: dict) -> str:
+    """MedicationDispense → RXD segment."""
+    fields = [""] * 21
+    fields[0] = "RXD"
+    fields[1] = "1"
+    med = md.get("medication", {})
+    if "concept" in med:
+        fields[2] = _fhir_code_to_v2(med["concept"])
+    fields[3] = _fhir_dt_to_v2(md.get("whenHandedOver"))
+    qty = md.get("quantity", {})
+    if qty:
+        fields[4] = str(qty.get("value", ""))
+        fields[5] = qty.get("unit", "")
+    auth = md.get("authorizingPrescription", [])
+    if auth:
+        fields[7] = auth[0].get("identifier", {}).get("value", "")
+    return "|".join(fields)
+
+
+def _specimen_to_spm(spec: dict) -> str:
+    """Specimen → SPM segment."""
+    fields = [""] * 21
+    fields[0] = "SPM"
+    fields[1] = "1"
+    idents = spec.get("identifier", [])
+    if idents:
+        fields[2] = idents[0].get("value", "")
+    fields[4] = _fhir_code_to_v2(spec.get("type"))
+    coll = spec.get("collection", {})
+    if coll:
+        fields[17] = _fhir_dt_to_v2(coll.get("collectedDateTime"))
+    fields[20] = {"available": "Y", "unavailable": "N"}.get(spec.get("status", ""), "Y")
+    return "|".join(fields)
+
+
+def _documentreference_to_txa(dr: dict) -> str:
+    """DocumentReference → TXA segment."""
+    fields = [""] * 18
+    fields[0] = "TXA"
+    fields[1] = "1"
+    fields[2] = _fhir_code_to_v2(dr.get("type"))
+    fields[4] = _fhir_dt_to_v2(dr.get("date"))
+    authors = dr.get("author", [])
+    if authors:
+        fields[5] = authors[0].get("display", "")
+    idents = dr.get("identifier", [])
+    if idents:
+        fields[12] = idents[0].get("value", "")
+    ds = dr.get("docStatus", "")
+    fields[17] = {"final": "AU", "preliminary": "IP", "amended": "DI"}.get(ds, "IP")
+    return "|".join(fields)
+
+
+def _diagnosticreport_to_obr(dr: dict) -> str:
+    """DiagnosticReport → OBR segment."""
+    fields = [""] * 26
+    fields[0] = "OBR"
+    fields[1] = "1"
+    idents = dr.get("identifier", [])
+    if idents:
+        fields[2] = idents[0].get("value", "")
+    fields[4] = _fhir_code_to_v2(dr.get("code"))
+    fields[7] = _fhir_dt_to_v2(dr.get("effectiveDateTime"))
+    fields[22] = _fhir_dt_to_v2(dr.get("issued"))
+    status = dr.get("status", "")
+    fields[25] = {"final": "F", "preliminary": "P", "corrected": "C",
+                  "partial": "A", "registered": "O", "cancelled": "X"}.get(status, "F")
+    return "|".join(fields)
+
+
+def _appointment_to_sch(appt: dict) -> str:
+    """Appointment → SCH segment."""
+    fields = [""] * 26
+    fields[0] = "SCH"
+    idents = appt.get("identifier", [])
+    for ident in idents:
+        if ident.get("use") == "usual":
+            fields[1] = ident.get("value", "")
+        elif ident.get("use") == "official":
+            fields[2] = ident.get("value", "")
+    fields[6] = appt.get("description", "")
+    reasons = appt.get("reasonCode", [])
+    if reasons:
+        fields[7] = _fhir_code_to_v2(reasons[0]) if "coding" in reasons[0] else reasons[0].get("text", "")
+    fields[11] = _fhir_dt_to_v2(appt.get("start"))
+    status = appt.get("status", "")
+    fields[25] = {"booked": "Booked", "proposed": "Pending", "fulfilled": "Complete",
+                  "cancelled": "Cancelled", "noshow": "Noshow"}.get(status, "Pending")
+    return "|".join(fields)
+
+
 _R5_TO_V2_CONVERTERS: dict[str, Any] = {
     "Patient": _patient_to_pid,
     "Encounter": _encounter_to_pv1,
+    "Observation": _observation_to_obx,
+    "AllergyIntolerance": _allergy_to_al1,
+    "Condition": _condition_to_dg1,
+    "Immunization": _immunization_to_rxa,
+    "RelatedPerson": _relatedperson_to_nk1,
+    "Coverage": _coverage_to_in1,
+    "ServiceRequest": _servicerequest_to_orc,
+    "MedicationRequest": _medicationrequest_to_rxe,
+    "MedicationDispense": _medicationdispense_to_rxd,
+    "Specimen": _specimen_to_spm,
+    "DocumentReference": _documentreference_to_txa,
+    "DiagnosticReport": _diagnosticreport_to_obr,
+    "Appointment": _appointment_to_sch,
 }
 
 
