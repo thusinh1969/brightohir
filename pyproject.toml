@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "brightohir"
-version = "2.1.1"
+version = "2.1.2"
 description = "BrighTO HL7 Interoperability Runtime — FHIR R5, R4↔R5, V2.x↔R5 Python SDK"
 readme = "README.md"
 license = {text = "MIT"}
@@ -43,10 +43,10 @@ dev = ["pytest>=8.0", "pytest-cov", "ruff", "build", "twine"]
 all = ["fhirpy>=2.2.0", "fhirpathpy>=0.2.0"]
 
 [project.urls]
-Homepage = "https://github.com/BrighTOTechnology/brightohir"
-Documentation = "https://github.com/BrighTOTechnology/brightohir#readme"
-Repository = "https://github.com/BrighTOTechnology/brightohir"
-Issues = "https://github.com/BrighTOTechnology/brightohir/issues"
+Homepage = "https://github.com/thusinh1969/brightohir"
+Documentation = "https://github.com/thusinh1969/brightohir#readme"
+Repository = "https://github.com/thusinh1969/brightohir"
+Issues = "https://github.com/thusinh1969/brightohir/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

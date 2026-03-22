@@ -9,7 +9,7 @@ Vietnamese healthcare code systems: ICD-10 VN, BHYT, drugs, labs, procedures
     from brightohir.vn import VN
     from brightohir.transport import MLLPServer, MLLPClient
 """
-__version__ = "2.1.1"
+__version__ = "2.1.2"
 
 from .r5 import R5
 from .convert_r4r5 import r4_to_r5, r5_to_r4, conversion_status

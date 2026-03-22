@@ -1,4 +1,4 @@
-# brightohir
+# brightohir V2.1.2
 
 ## Pure Python. HL7 V2.x ↔ FHIR R5. One `pip install`.
 ## Python thuần. HL7 V2.x ↔ FHIR R5. Một lệnh `pip install`.
