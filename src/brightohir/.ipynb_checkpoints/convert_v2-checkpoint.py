@@ -1064,10 +1064,711 @@ def _prt_to_practitionerrole(segment) -> dict:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Segment converter registry
+# TIER 2 + 3: New resource CREATORS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _pr1_to_procedure(segment) -> dict:
+    """PR1 → Procedure."""
+    proc: dict[str, Any] = {"resourceType": "Procedure", "id": str(uuid.uuid4()), "status": "completed"}
+    code = _get_field_value(segment, 3)
+    if code:
+        proc["code"] = _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}
+    dt = _get_field_value(segment, 5)
+    if dt:
+        proc["performedDateTime"] = _ts_to_datetime(dt)
+    prov = _get_field_value(segment, 8)
+    if prov:
+        comps = _get_components(prov)
+        proc["performer"] = [{"actor": {"display": " ".join(str(c) for c in comps[:3] if c)}}]
+    consent = _get_field_value(segment, 13)
+    if consent:
+        proc.setdefault("note", []).append({"text": f"Consent: {_field_str(consent)}"})
+    return proc
+
+
+def _iam_to_allergy(segment) -> dict:
+    """IAM → AllergyIntolerance (detailed, more complete than AL1)."""
+    allergy: dict[str, Any] = {"resourceType": "AllergyIntolerance", "id": str(uuid.uuid4())}
+    atype = _get_field_value(segment, 2)
+    if atype:
+        allergy["type"] = {"DA": "allergy", "FA": "allergy", "MA": "allergy", "EA": "allergy"}.get(_field_str(atype), "allergy")
+    code = _get_field_value(segment, 3)
+    if code:
+        allergy["code"] = _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}
+    sev = _get_field_value(segment, 4)
+    if sev:
+        allergy["criticality"] = {"SV": "high", "MO": "low", "MI": "low", "U": "unable-to-assess"}.get(_field_str(sev), "unable-to-assess")
+    reaction = _get_field_value(segment, 5)
+    if reaction:
+        allergy["reaction"] = [{"manifestation": [{"concept": {"text": _field_str(reaction)}}]}]
+    onset = _get_field_value(segment, 11)
+    if onset:
+        allergy["onsetDateTime"] = _ts_to_datetime(onset)
+    status = _get_field_value(segment, 17)
+    if status:
+        s = _field_str(status)
+        allergy["clinicalStatus"] = {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical",
+            "code": {"A": "active", "I": "inactive", "R": "resolved"}.get(s, "active")}]}
+    else:
+        allergy["clinicalStatus"] = {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-clinical", "code": "active"}]}
+    allergy["verificationStatus"] = {"coding": [{"system": "http://terminology.hl7.org/CodeSystem/allergyintolerance-verification", "code": "confirmed"}]}
+    return allergy
+
+
+def _rxg_to_medicationadministration(segment) -> dict:
+    """RXG → MedicationAdministration (give)."""
+    ma: dict[str, Any] = {"resourceType": "MedicationAdministration", "id": str(uuid.uuid4()), "status": "completed"}
+    code = _get_field_value(segment, 4)
+    if code:
+        ma["medication"] = {"concept": _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}}
+    amt = _get_field_value(segment, 5)
+    if amt:
+        try:
+            ma.setdefault("dosage", {})["dose"] = {"value": float(_field_str(amt))}
+        except ValueError:
+            pass
+    units = _get_field_value(segment, 7)
+    if units and "dosage" in ma and "dose" in ma["dosage"]:
+        ma["dosage"]["dose"]["unit"] = _field_str(units)
+    dt = _get_field_value(segment, 3)
+    if dt:
+        ma["occurenceDateTime"] = _ts_to_datetime(dt)
+    return ma
+
+
+def _evn_to_provenance(segment) -> dict:
+    """EVN → Provenance."""
+    prov: dict[str, Any] = {"resourceType": "Provenance", "id": str(uuid.uuid4())}
+    recorded = _get_field_value(segment, 2)
+    if recorded:
+        prov["recorded"] = _ts_to_datetime(recorded)
+    reason = _get_field_value(segment, 4)
+    if reason:
+        prov["reason"] = [_cwe_to_codeableconcept(reason) if hasattr(reason, "children") else {"coding": [{"code": _field_str(reason)}]}]
+    operator = _get_field_value(segment, 5)
+    if operator:
+        comps = _get_components(operator)
+        prov["agent"] = [{"who": {"display": " ".join(str(c) for c in comps[:3] if c)}}]
+    else:
+        prov["agent"] = [{"who": {"display": "System"}}]
+    event_dt = _get_field_value(segment, 6)
+    if event_dt:
+        prov["occurredDateTime"] = _ts_to_datetime(event_dt)
+    return prov
+
+
+def _acc_to_account(segment) -> dict:
+    """ACC → Account (accident information)."""
+    acct: dict[str, Any] = {"resourceType": "Account", "id": str(uuid.uuid4()), "status": "active"}
+    dt = _get_field_value(segment, 1)
+    if dt:
+        acct["servicePeriod"] = {"start": _ts_to_datetime(dt)}
+    code = _get_field_value(segment, 2)
+    if code:
+        acct["type"] = _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}
+    loc = _get_field_value(segment, 3)
+    if loc:
+        acct.setdefault("note", []).append({"text": f"Accident location: {_field_str(loc)}"})
+    return acct
+
+
+def _sft_to_device(segment) -> dict:
+    """SFT → Device (software identification)."""
+    dev: dict[str, Any] = {"resourceType": "Device", "id": str(uuid.uuid4())}
+    vendor = _get_field_value(segment, 1)
+    if vendor:
+        comps = _get_components(vendor)
+        dev["manufacturer"] = str(comps[0]) if comps else _field_str(vendor)
+    version = _get_field_value(segment, 2)
+    if version:
+        dev["version"] = [{"value": _field_str(version)}]
+    name = _get_field_value(segment, 3)
+    if name:
+        dev["name"] = [{"value": _field_str(name), "type": "user-friendly-name"}]
+    binary_id = _get_field_value(segment, 4)
+    if binary_id:
+        dev["identifier"] = [{"value": _field_str(binary_id)}]
+    return dev
+
+
+def _stf_to_practitioner(segment) -> dict:
+    """STF → Practitioner (staff)."""
+    pract: dict[str, Any] = {"resourceType": "Practitioner", "id": str(uuid.uuid4()), "active": True}
+    sid = _get_field_value(segment, 1)
+    if sid:
+        pract["identifier"] = [_cx_to_identifier(sid) if hasattr(sid, "children") else {"value": _field_str(sid)}]
+    name = _get_field_value(segment, 3)
+    if name:
+        pract["name"] = [_xpn_to_humanname(name)]
+    stype = _get_field_value(segment, 4)
+    if stype:
+        pract["qualification"] = [{"code": _cwe_to_codeableconcept(stype) if hasattr(stype, "children") else {"coding": [{"code": _field_str(stype)}]}}]
+    sex = _get_field_value(segment, 5)
+    if sex:
+        pract["gender"] = {"M": "male", "F": "female"}.get(_field_str(sex), "unknown")
+    dob = _get_field_value(segment, 6)
+    if dob:
+        dt = _ts_to_datetime(dob)
+        if dt:
+            pract["birthDate"] = dt[:10]
+    phone = _get_field_value(segment, 10)
+    if phone:
+        pract["telecom"] = [_xtn_to_contactpoint(phone)]
+    addr = _get_field_value(segment, 11)
+    if addr:
+        pract["address"] = [_xad_to_address(addr)]
+    return pract
+
+
+def _org_to_organization(segment) -> dict:
+    """ORG → Organization."""
+    org: dict[str, Any] = {"resourceType": "Organization", "id": str(uuid.uuid4()), "active": True}
+    oid = _get_field_value(segment, 1)
+    if oid:
+        org["identifier"] = [{"value": _field_str(oid)}]
+    name = _get_field_value(segment, 2)
+    if name:
+        comps = _get_components(name)
+        org["name"] = str(comps[0]) if comps else _field_str(name)
+    otype = _get_field_value(segment, 3)
+    if otype:
+        org["type"] = [_cwe_to_codeableconcept(otype) if hasattr(otype, "children") else {"coding": [{"code": _field_str(otype)}]}]
+    return org
+
+
+def _aff_to_organization(segment) -> dict:
+    """AFF → Organization (affiliation)."""
+    org: dict[str, Any] = {"resourceType": "Organization", "id": str(uuid.uuid4()), "active": True}
+    name = _get_field_value(segment, 2)
+    if name:
+        comps = _get_components(name)
+        org["name"] = str(comps[0]) if comps else _field_str(name)
+    addr = _get_field_value(segment, 3)
+    if addr:
+        org["address"] = [_xad_to_address(addr)]
+    return org
+
+
+def _arv_to_consent(segment) -> dict:
+    """ARV → Consent (access restriction)."""
+    consent: dict[str, Any] = {"resourceType": "Consent", "id": str(uuid.uuid4()), "status": "active"}
+    action = _get_field_value(segment, 1)
+    if action:
+        consent["decision"] = {"coding": [{"code": _field_str(action)}]}
+    value = _get_field_value(segment, 2)
+    if value:
+        consent["category"] = [_cwe_to_codeableconcept(value) if hasattr(value, "children") else {"coding": [{"code": _field_str(value)}]}]
+    reason = _get_field_value(segment, 4)
+    if reason:
+        consent["policyRule"] = _cwe_to_codeableconcept(reason) if hasattr(reason, "children") else {"coding": [{"code": _field_str(reason)}]}
+    return consent
+
+
+def _err_to_operationoutcome(segment) -> dict:
+    """ERR → OperationOutcome."""
+    oo: dict[str, Any] = {"resourceType": "OperationOutcome", "id": str(uuid.uuid4())}
+    issues = []
+    sev = _get_field_value(segment, 4)
+    sev_map = {"W": "warning", "I": "information", "E": "error", "F": "fatal"}
+    severity = sev_map.get(_field_str(sev), "error") if sev else "error"
+    code_field = _get_field_value(segment, 3)
+    code = _field_str(code_field) if code_field else "processing"
+    msg = _get_field_value(segment, 7)
+    diag = _get_field_value(segment, 8)
+    issue: dict[str, Any] = {"severity": severity, "code": code}
+    if msg:
+        issue["details"] = {"text": _field_str(msg)}
+    if diag:
+        issue["diagnostics"] = _field_str(diag)
+    loc = _get_field_value(segment, 2)
+    if loc:
+        issue["expression"] = [_field_str(loc)]
+    issues.append(issue)
+    oo["issue"] = issues
+    return oo
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TIER 2 + 3: ENRICHERS (modify existing resource in-place)
+# Signature: enricher(segment, resources: dict[str, list[dict]]) → None
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _enrich_pd1_patient(segment, resources):
+    """PD1 enriches Patient."""
+    patients = resources.get("Patient", [])
+    if not patients:
+        return
+    pat = patients[-1]
+    # PD1-3: Patient Primary Facility
+    facility = _get_field_value(segment, 3)
+    if facility:
+        comps = _get_components(facility)
+        pat.setdefault("managingOrganization", {})["display"] = str(comps[0]) if comps else _field_str(facility)
+    # PD1-4: Patient Primary Care Provider
+    pcp = _get_field_value(segment, 4)
+    if pcp:
+        comps = _get_components(pcp)
+        pat.setdefault("generalPractitioner", []).append({"display": " ".join(str(c) for c in comps[:3] if c)})
+    # PD1-6: Handicap → disability extension (text note)
+    handicap = _get_field_value(segment, 6)
+    if handicap:
+        pat.setdefault("extension", []).append({"url": "http://hl7.org/fhir/StructureDefinition/patient-disability",
+            "valueCodeableConcept": {"text": _field_str(handicap)}})
+    # PD1-7: Living Will Code
+    lw = _get_field_value(segment, 7)
+    if lw:
+        pat.setdefault("extension", []).append({"url": "http://hl7.org/fhir/StructureDefinition/patient-livingWill",
+            "valueCodeableConcept": {"coding": [{"code": _field_str(lw)}]}})
+    # PD1-8: Organ Donor Code
+    od = _get_field_value(segment, 8)
+    if od:
+        pat.setdefault("extension", []).append({"url": "http://hl7.org/fhir/StructureDefinition/patient-organDonor",
+            "valueCodeableConcept": {"coding": [{"code": _field_str(od)}]}})
+
+
+def _enrich_pv2_encounter(segment, resources):
+    """PV2 enriches Encounter."""
+    encounters = resources.get("Encounter", [])
+    if not encounters:
+        return
+    enc = encounters[-1]
+    # PV2-3: Admit Reason
+    reason = _get_field_value(segment, 3)
+    if reason:
+        enc.setdefault("reason", []).append({"value": [_cwe_to_codeableconcept(reason) if hasattr(reason, "children") else {"coding": [{"code": _field_str(reason)}]}]})
+    # PV2-8: Expected Admit Date
+    edt = _get_field_value(segment, 8)
+    if edt:
+        enc.setdefault("plannedStartDate", _ts_to_datetime(edt))
+    # PV2-9: Expected Discharge Date
+    ddt = _get_field_value(segment, 9)
+    if ddt:
+        enc.setdefault("plannedEndDate", _ts_to_datetime(ddt))
+    # PV2-12: Visit Description
+    desc = _get_field_value(segment, 12)
+    if desc:
+        enc.setdefault("text", {})["div"] = f"<div>{_field_str(desc)}</div>"
+        enc["text"]["status"] = "generated"
+    # PV2-25: Visit Priority Code
+    pri = _get_field_value(segment, 25)
+    if pri:
+        enc["priority"] = _cwe_to_codeableconcept(pri) if hasattr(pri, "children") else {"coding": [{"code": _field_str(pri)}]}
+
+
+def _enrich_in2_coverage(segment, resources):
+    """IN2 enriches Coverage."""
+    covs = resources.get("Coverage", [])
+    if not covs:
+        return
+    cov = covs[-1]
+    # IN2-1: Insured's Employee ID
+    eid = _get_field_value(segment, 1)
+    if eid:
+        cov.setdefault("identifier", []).append({"value": _field_str(eid), "use": "secondary"})
+    # IN2-3: Insured's Employer Name
+    ename = _get_field_value(segment, 3)
+    if ename:
+        comps = _get_components(ename)
+        cov.setdefault("extension", []).append({"url": "http://hl7.org/fhir/StructureDefinition/coverage-employer",
+            "valueString": str(comps[0]) if comps else _field_str(ename)})
+    # IN2-6: Medicare Health Ins Card Number
+    mcard = _get_field_value(segment, 6)
+    if mcard:
+        cov.setdefault("identifier", []).append({"value": _field_str(mcard), "type": {"coding": [{"code": "MC"}]}})
+    # IN2-61: Patient Member Number
+    memnum = _get_field_value(segment, 61)
+    if memnum:
+        cov["subscriberId"] = _field_str(memnum)
+
+
+def _enrich_in3_coverage(segment, resources):
+    """IN3 enriches Coverage (certification/authorization)."""
+    covs = resources.get("Coverage", [])
+    if not covs:
+        return
+    cov = covs[-1]
+    # IN3-1: Set ID
+    # IN3-3: Certified By
+    certby = _get_field_value(segment, 3)
+    if certby:
+        comps = _get_components(certby)
+        cov.setdefault("extension", []).append({"url": "http://hl7.org/fhir/StructureDefinition/coverage-certifiedBy",
+            "valueReference": {"display": " ".join(str(c) for c in comps[:3] if c)}})
+    # IN3-6: Certification Date/Time
+    cdt = _get_field_value(segment, 6)
+    if cdt:
+        cov.setdefault("extension", []).append({"url": "http://hl7.org/fhir/StructureDefinition/coverage-certificationDate",
+            "valueDateTime": _ts_to_datetime(cdt)})
+    # IN3-14: Physician Reviewer
+    phys = _get_field_value(segment, 14)
+    if phys:
+        comps = _get_components(phys)
+        cov.setdefault("extension", []).append({"url": "http://hl7.org/fhir/StructureDefinition/coverage-reviewer",
+            "valueReference": {"display": " ".join(str(c) for c in comps[:3] if c)}})
+
+
+def _enrich_rxr_dosage(segment, resources):
+    """RXR enriches MedicationRequest/Immunization dosage (route, site, method)."""
+    # Try MedicationRequest first, then Immunization
+    for rt in ("MedicationRequest", "Immunization"):
+        items = resources.get(rt, [])
+        if not items:
+            continue
+        target = items[-1]
+        # RXR-1: Route
+        route = _get_field_value(segment, 1)
+        if route:
+            route_cc = _cwe_to_codeableconcept(route) if hasattr(route, "children") else {"coding": [{"code": _field_str(route)}]}
+            if rt == "MedicationRequest":
+                dosages = target.setdefault("dosageInstruction", [{}])
+                dosages[-1]["route"] = route_cc
+            else:
+                target["route"] = route_cc
+        # RXR-2: Administration Site
+        site = _get_field_value(segment, 2)
+        if site:
+            site_cc = _cwe_to_codeableconcept(site) if hasattr(site, "children") else {"coding": [{"code": _field_str(site)}]}
+            if rt == "MedicationRequest":
+                dosages = target.setdefault("dosageInstruction", [{}])
+                dosages[-1]["site"] = site_cc
+            else:
+                target["site"] = site_cc
+        # RXR-3: Administration Method
+        method = _get_field_value(segment, 3)
+        if method and rt == "MedicationRequest":
+            dosages = target.setdefault("dosageInstruction", [{}])
+            dosages[-1]["method"] = _cwe_to_codeableconcept(method) if hasattr(method, "children") else {"coding": [{"code": _field_str(method)}]}
+        return  # Enrich first matching resource only
+
+
+def _enrich_rxc_medication(segment, resources):
+    """RXC enriches MedicationRequest (component/ingredient)."""
+    mrs = resources.get("MedicationRequest", [])
+    if not mrs:
+        return
+    mr = mrs[-1]
+    ctype = _get_field_value(segment, 1)
+    code = _get_field_value(segment, 2)
+    amt = _get_field_value(segment, 3)
+    if code:
+        ingredient = {"itemCodeableConcept": _cwe_to_codeableconcept(code) if hasattr(code, "children") else {"coding": [{"code": _field_str(code)}]}}
+        if amt:
+            try:
+                ingredient["amount"] = {"numerator": {"value": float(_field_str(amt))}}
+            except ValueError:
+                pass
+        if ctype:
+            ingredient["_type"] = _field_str(ctype)  # B=base, A=additive
+        mr.setdefault("_components", []).append(ingredient)
+
+
+def _enrich_tq1_timing(segment, resources):
+    """TQ1 enriches ServiceRequest/MedicationRequest timing."""
+    for rt in ("MedicationRequest", "ServiceRequest"):
+        items = resources.get(rt, [])
+        if not items:
+            continue
+        target = items[-1]
+        timing: dict[str, Any] = {}
+        repeat: dict[str, Any] = {}
+        # TQ1-2: Quantity
+        qty = _get_field_value(segment, 2)
+        if qty:
+            try:
+                repeat["count"] = int(_field_str(qty))
+            except ValueError:
+                pass
+        # TQ1-3: Repeat Pattern
+        pattern = _get_field_value(segment, 3)
+        if pattern:
+            timing["code"] = _cwe_to_codeableconcept(pattern) if hasattr(pattern, "children") else {"coding": [{"code": _field_str(pattern)}]}
+        # TQ1-6: Service Duration
+        dur = _get_field_value(segment, 6)
+        if dur:
+            try:
+                repeat["duration"] = float(_field_str(dur))
+            except ValueError:
+                pass
+        # TQ1-7: Start Date/Time
+        start = _get_field_value(segment, 7)
+        if start:
+            repeat["boundsPeriod"] = {"start": _ts_to_datetime(start)}
+        # TQ1-8: End Date/Time
+        end = _get_field_value(segment, 8)
+        if end:
+            repeat.setdefault("boundsPeriod", {})["end"] = _ts_to_datetime(end)
+        # TQ1-9: Priority
+        pri = _get_field_value(segment, 9)
+        if pri:
+            target["priority"] = {"S": "stat", "A": "asap", "R": "routine", "T": "urgent"}.get(_field_str(pri), "routine")
+        if repeat:
+            timing["repeat"] = repeat
+        if timing:
+            if rt == "MedicationRequest":
+                dosages = target.setdefault("dosageInstruction", [{}])
+                dosages[-1]["timing"] = timing
+            else:
+                target["occurrenceTiming"] = timing
+        return
+
+
+def _enrich_tq2_timing(segment, resources):
+    """TQ2 enriches ServiceRequest timing relationship."""
+    srs = resources.get("ServiceRequest", [])
+    if not srs:
+        return
+    sr = srs[-1]
+    rel = _get_field_value(segment, 2)
+    if rel:
+        sr.setdefault("extension", []).append({
+            "url": "http://hl7.org/fhir/StructureDefinition/timing-relationship",
+            "valueString": _field_str(rel)})
+
+
+def _enrich_rol_encounter(segment, resources):
+    """ROL enriches Encounter participant (deprecated, use PRT)."""
+    encounters = resources.get("Encounter", [])
+    if not encounters:
+        return
+    enc = encounters[-1]
+    role = _get_field_value(segment, 3)
+    person = _get_field_value(segment, 4)
+    if person:
+        comps = _get_components(person)
+        participant = {"actor": {"display": " ".join(str(c) for c in comps[:3] if c)}}
+        if role:
+            participant["type"] = [_cwe_to_codeableconcept(role) if hasattr(role, "children") else {"coding": [{"code": _field_str(role)}]}]
+        enc.setdefault("participant", []).append(participant)
+
+
+def _enrich_aig_appointment(segment, resources):
+    """AIG enriches Appointment (resource group participant)."""
+    appts = resources.get("Appointment", [])
+    if not appts:
+        return
+    appt = appts[-1]
+    group = _get_field_value(segment, 3)
+    if group:
+        appt.setdefault("participant", []).append({
+            "actor": {"display": _field_str(group)},
+            "type": [{"coding": [{"code": "ATND"}]}],
+            "status": "accepted"})
+
+
+def _enrich_ail_appointment(segment, resources):
+    """AIL enriches Appointment (location participant)."""
+    appts = resources.get("Appointment", [])
+    if not appts:
+        return
+    appt = appts[-1]
+    loc = _get_field_value(segment, 3)
+    if loc:
+        comps = _get_components(loc)
+        appt.setdefault("participant", []).append({
+            "actor": {"display": str(comps[0]) if comps else _field_str(loc), "type": "Location"},
+            "type": [{"coding": [{"code": "LOC"}]}],
+            "status": "accepted"})
+
+
+def _enrich_aip_appointment(segment, resources):
+    """AIP enriches Appointment (personnel participant)."""
+    appts = resources.get("Appointment", [])
+    if not appts:
+        return
+    appt = appts[-1]
+    person = _get_field_value(segment, 3)
+    if person:
+        comps = _get_components(person)
+        appt.setdefault("participant", []).append({
+            "actor": {"display": " ".join(str(c) for c in comps[:3] if c), "type": "Practitioner"},
+            "type": [{"coding": [{"code": "PPRF"}]}],
+            "status": "accepted"})
+
+
+def _enrich_ais_appointment(segment, resources):
+    """AIS enriches Appointment (service participant)."""
+    appts = resources.get("Appointment", [])
+    if not appts:
+        return
+    appt = appts[-1]
+    svc = _get_field_value(segment, 3)
+    if svc:
+        appt["serviceType"] = [_cwe_to_codeableconcept(svc) if hasattr(svc, "children") else {"coding": [{"code": _field_str(svc)}]}]
+    start = _get_field_value(segment, 4)
+    if start:
+        appt.setdefault("requestedPeriod", [{}])[-1]["start"] = _ts_to_datetime(start)
+
+
+def _enrich_sac_specimen(segment, resources):
+    """SAC enriches Specimen (container)."""
+    specs = resources.get("Specimen", [])
+    if not specs:
+        return
+    spec = specs[-1]
+    cid = _get_field_value(segment, 3)
+    ctype = _get_field_value(segment, 6)
+    container: dict[str, Any] = {}
+    if cid:
+        container["identifier"] = [{"value": _field_str(cid)}]
+    if ctype:
+        container["type"] = _cwe_to_codeableconcept(ctype) if hasattr(ctype, "children") else {"coding": [{"code": _field_str(ctype)}]}
+    cap = _get_field_value(segment, 21)
+    if cap:
+        try:
+            container["capacity"] = {"value": float(_field_str(cap))}
+        except ValueError:
+            pass
+    vol = _get_field_value(segment, 23)
+    if vol:
+        try:
+            container["specimenQuantity"] = {"value": float(_field_str(vol))}
+        except ValueError:
+            pass
+    if container:
+        spec.setdefault("container", []).append(container)
+
+
+def _enrich_lan_practitioner(segment, resources):
+    """LAN enriches Practitioner (language/communication)."""
+    practs = resources.get("Practitioner", [])
+    if not practs:
+        return
+    pract = practs[-1]
+    lang = _get_field_value(segment, 2)
+    if lang:
+        pract.setdefault("communication", []).append({
+            "language": _cwe_to_codeableconcept(lang) if hasattr(lang, "children") else {"coding": [{"code": _field_str(lang)}]}})
+
+
+def _enrich_edu_practitioner(segment, resources):
+    """EDU enriches Practitioner (qualification — education)."""
+    practs = resources.get("Practitioner", [])
+    if not practs:
+        return
+    pract = practs[-1]
+    degree = _get_field_value(segment, 2)
+    qual: dict[str, Any] = {}
+    if degree:
+        qual["code"] = _cwe_to_codeableconcept(degree) if hasattr(degree, "children") else {"coding": [{"code": _field_str(degree)}]}
+    school = _get_field_value(segment, 4)
+    if school:
+        comps = _get_components(school)
+        qual["issuer"] = {"display": str(comps[0]) if comps else _field_str(school)}
+    dt = _get_field_value(segment, 3)
+    if dt:
+        qual["period"] = {"end": _ts_to_datetime(dt)}
+    if qual:
+        pract.setdefault("qualification", []).append(qual)
+
+
+def _enrich_cer_practitioner(segment, resources):
+    """CER enriches Practitioner (qualification — certification)."""
+    practs = resources.get("Practitioner", [])
+    if not practs:
+        return
+    pract = practs[-1]
+    cert_type = _get_field_value(segment, 3)
+    qual: dict[str, Any] = {}
+    if cert_type:
+        qual["code"] = _cwe_to_codeableconcept(cert_type) if hasattr(cert_type, "children") else {"coding": [{"code": _field_str(cert_type)}]}
+    issuer = _get_field_value(segment, 4)
+    if issuer:
+        comps = _get_components(issuer)
+        qual["issuer"] = {"display": str(comps[0]) if comps else _field_str(issuer)}
+    start = _get_field_value(segment, 7)
+    end = _get_field_value(segment, 8)
+    if start or end:
+        qual["period"] = {}
+        if start:
+            qual["period"]["start"] = _ts_to_datetime(start)
+        if end:
+            qual["period"]["end"] = _ts_to_datetime(end)
+    if qual:
+        pract.setdefault("qualification", []).append(qual)
+
+
+def _enrich_msa_messageheader(segment, resources):
+    """MSA enriches MessageHeader (response)."""
+    mhs = resources.get("MessageHeader", [])
+    if not mhs:
+        return
+    mh = mhs[-1]
+    ack_code = _get_field_value(segment, 1)
+    msg_ctrl_id = _get_field_value(segment, 2)
+    if ack_code or msg_ctrl_id:
+        resp: dict[str, Any] = {}
+        if msg_ctrl_id:
+            resp["identifier"] = _field_str(msg_ctrl_id)
+        if ack_code:
+            code = _field_str(ack_code)
+            resp["code"] = {"AA": "ok", "AE": "transient-error", "AR": "fatal-error",
+                            "CA": "ok", "CE": "transient-error", "CR": "fatal-error"}.get(code, "ok")
+        mh["response"] = resp
+
+
+def _enrich_uac_messageheader(segment, resources):
+    """UAC enriches MessageHeader (user authentication credential)."""
+    mhs = resources.get("MessageHeader", [])
+    if not mhs:
+        return
+    mh = mhs[-1]
+    cred_type = _get_field_value(segment, 1)
+    cred = _get_field_value(segment, 2)
+    if cred_type or cred:
+        mh.setdefault("extension", []).append({
+            "url": "http://hl7.org/fhir/StructureDefinition/messageheader-auth",
+            "valueString": f"{_field_str(cred_type)}:{_field_str(cred)}" if cred_type else _field_str(cred)})
+
+
+def _enrich_nte_note(segment, resources):
+    """NTE enriches last clinical resource with a note."""
+    text = _get_field_value(segment, 3)
+    if not text:
+        return
+    note_text = _field_str(text)
+    for rt in ("Observation", "DiagnosticReport", "ServiceRequest", "Procedure",
+               "MedicationRequest", "AllergyIntolerance", "Condition"):
+        items = resources.get(rt, [])
+        if items:
+            items[-1].setdefault("note", []).append({"text": note_text})
+            return
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Batch/query infrastructure segments (minimal converters)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def _bhs_to_bundle_meta(segment) -> dict:
+    """BHS → Bundle metadata (batch header)."""
+    meta: dict[str, Any] = {"resourceType": "_BatchMeta", "id": str(uuid.uuid4())}
+    sender = _get_field_value(segment, 3)
+    if sender:
+        meta["_batch_sender"] = _field_str(sender)
+    dt = _get_field_value(segment, 7)
+    if dt:
+        meta["_batch_timestamp"] = _ts_to_datetime(dt)
+    return meta
+
+
+def _qpd_to_parameters(segment) -> dict:
+    """QPD → Parameters (query parameter definition)."""
+    params: dict[str, Any] = {"resourceType": "Parameters", "id": str(uuid.uuid4())}
+    msg_query = _get_field_value(segment, 1)
+    if msg_query:
+        params["parameter"] = [{"name": "query-tag", "valueString": _field_str(msg_query)}]
+    query_name = _get_field_value(segment, 2)
+    if query_name:
+        params.setdefault("parameter", []).append({"name": "query-name",
+            "valueString": _field_str(query_name)})
+    return params
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Segment converter + enricher registries
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _SEGMENT_CONVERTERS: dict[str, tuple[str, Any]] = {
+    # Tier 1 (original 19)
     "MSH": ("MessageHeader", _msh_to_messageheader),
     "PID": ("Patient", _pid_to_patient),
     "PV1": ("Encounter", _pv1_to_encounter),
@@ -1087,6 +1788,47 @@ _SEGMENT_CONVERTERS: dict[str, tuple[str, Any]] = {
     "SCH": ("Appointment", _sch_to_appointment),
     "TXA": ("DocumentReference", _txa_to_documentreference),
     "PRT": ("PractitionerRole", _prt_to_practitionerrole),
+    # Tier 2 creators
+    "PR1": ("Procedure", _pr1_to_procedure),
+    "IAM": ("AllergyIntolerance", _iam_to_allergy),
+    "RXG": ("MedicationAdministration", _rxg_to_medicationadministration),
+    "EVN": ("Provenance", _evn_to_provenance),
+    "ACC": ("Account", _acc_to_account),
+    "SFT": ("Device", _sft_to_device),
+    "ARV": ("Consent", _arv_to_consent),
+    # Tier 3 creators
+    "STF": ("Practitioner", _stf_to_practitioner),
+    "ORG": ("Organization", _org_to_organization),
+    "AFF": ("Organization", _aff_to_organization),
+    "ERR": ("OperationOutcome", _err_to_operationoutcome),
+    "QPD": ("Parameters", _qpd_to_parameters),
+}
+
+# Enrichers: segment → enricher function
+# These modify an existing resource rather than creating a new one
+_SEGMENT_ENRICHERS: dict[str, Any] = {
+    # Tier 2 enrichers
+    "PD1": _enrich_pd1_patient,
+    "PV2": _enrich_pv2_encounter,
+    "IN2": _enrich_in2_coverage,
+    "IN3": _enrich_in3_coverage,
+    "RXR": _enrich_rxr_dosage,
+    "RXC": _enrich_rxc_medication,
+    "TQ1": _enrich_tq1_timing,
+    "TQ2": _enrich_tq2_timing,
+    "ROL": _enrich_rol_encounter,
+    "AIG": _enrich_aig_appointment,
+    "AIL": _enrich_ail_appointment,
+    "AIP": _enrich_aip_appointment,
+    "AIS": _enrich_ais_appointment,
+    "SAC": _enrich_sac_specimen,
+    "NTE": _enrich_nte_note,
+    # Tier 3 enrichers
+    "LAN": _enrich_lan_practitioner,
+    "EDU": _enrich_edu_practitioner,
+    "CER": _enrich_cer_practitioner,
+    "MSA": _enrich_msa_messageheader,
+    "UAC": _enrich_uac_messageheader,
 }
 
 
@@ -1226,18 +1968,16 @@ class V2Converter:
 
         self._raw_message = msg
 
-        # Process each segment
+        # Process each segment — creators first, then enrichers
         for segment in msg.children:
             seg_name = segment.name if hasattr(segment, "name") else ""
             if seg_name in _SEGMENT_CONVERTERS:
                 resource_type, converter = _SEGMENT_CONVERTERS[seg_name]
                 resource = converter(segment)
                 self._resources.setdefault(resource_type, []).append(resource)
-            # NTE → attach as note to last Observation/ServiceRequest
-            elif seg_name == "NTE":
-                note_text = _get_field_value(segment, 3)
-                if note_text:
-                    self._attach_note(_field_str(note_text))
+            elif seg_name in _SEGMENT_ENRICHERS:
+                enricher = _SEGMENT_ENRICHERS[seg_name]
+                enricher(segment, self._resources)
 
         # Build cross-references
         self._link_references()
@@ -1405,7 +2145,8 @@ class V2Converter:
             for rt in ("Encounter", "Observation", "AllergyIntolerance", "Condition",
                        "Immunization", "MedicationRequest", "MedicationDispense",
                        "ServiceRequest", "DiagnosticReport", "Coverage", "Specimen",
-                       "DocumentReference", "Appointment"):
+                       "DocumentReference", "Appointment", "Procedure",
+                       "MedicationAdministration", "Consent"):
                 for r in self._resources.get(rt, []):
                     if rt in ("Coverage",):
                         r["beneficiary"] = patient_ref
@@ -1424,7 +2165,8 @@ class V2Converter:
             enc_ref = {"reference": f"Encounter/{enc_id}"}
             for rt in ("Observation", "Condition", "AllergyIntolerance", "Immunization",
                        "MedicationRequest", "MedicationDispense", "ServiceRequest",
-                       "DiagnosticReport", "Specimen", "DocumentReference"):
+                       "DiagnosticReport", "Specimen", "DocumentReference",
+                       "Procedure", "MedicationAdministration"):
                 for r in self._resources.get(rt, []):
                     r["encounter"] = enc_ref
 
@@ -1853,7 +2595,125 @@ def _appointment_to_sch(appt: dict) -> str:
     return "|".join(fields)
 
 
+def _procedure_to_pr1(proc: dict) -> str:
+    """Procedure → PR1."""
+    fields = [""] * 14
+    fields[0] = "PR1"
+    fields[1] = "1"
+    fields[3] = _fhir_code_to_v2(proc.get("code"))
+    fields[5] = _fhir_dt_to_v2(proc.get("performedDateTime"))
+    performers = proc.get("performer", [])
+    if performers:
+        fields[8] = performers[0].get("actor", {}).get("display", "")
+    return "|".join(fields)
+
+
+def _medicationadmin_to_rxg(ma: dict) -> str:
+    """MedicationAdministration → RXG."""
+    fields = [""] * 8
+    fields[0] = "RXG"
+    fields[1] = "1"
+    fields[2] = "1"
+    fields[3] = _fhir_dt_to_v2(ma.get("occurenceDateTime"))
+    med = ma.get("medication", {})
+    if "concept" in med:
+        fields[4] = _fhir_code_to_v2(med["concept"])
+    dosage = ma.get("dosage", {})
+    dose = dosage.get("dose", {})
+    if dose:
+        fields[5] = str(dose.get("value", ""))
+        fields[7] = dose.get("unit", "")
+    return "|".join(fields)
+
+
+def _provenance_to_evn(prov: dict) -> str:
+    """Provenance → EVN."""
+    fields = [""] * 7
+    fields[0] = "EVN"
+    fields[2] = _fhir_dt_to_v2(prov.get("recorded"))
+    agents = prov.get("agent", [])
+    if agents:
+        fields[5] = agents[0].get("who", {}).get("display", "")
+    fields[6] = _fhir_dt_to_v2(prov.get("occurredDateTime"))
+    return "|".join(fields)
+
+
+def _device_to_sft(dev: dict) -> str:
+    """Device → SFT."""
+    fields = [""] * 5
+    fields[0] = "SFT"
+    fields[1] = dev.get("manufacturer", "")
+    versions = dev.get("version", [])
+    if versions:
+        fields[2] = versions[0].get("value", "")
+    names = dev.get("name", [])
+    if names:
+        fields[3] = names[0].get("value", "")
+    idents = dev.get("identifier", [])
+    if idents:
+        fields[4] = idents[0].get("value", "")
+    return "|".join(fields)
+
+
+def _practitioner_to_stf(pract: dict) -> str:
+    """Practitioner → STF."""
+    fields = [""] * 12
+    fields[0] = "STF"
+    idents = pract.get("identifier", [])
+    if idents:
+        fields[1] = idents[0].get("value", "")
+    names = pract.get("name", [])
+    if names:
+        n = names[0]
+        fields[3] = f"{n.get('family', '')}^{(n.get('given', ['']))[0] if n.get('given') else ''}"
+    gender = pract.get("gender", "")
+    fields[5] = {"male": "M", "female": "F"}.get(gender, "U")
+    fields[6] = _fhir_dt_to_v2(pract.get("birthDate"))
+    return "|".join(fields)
+
+
+def _organization_to_org(org: dict) -> str:
+    """Organization → ORG."""
+    fields = [""] * 4
+    fields[0] = "ORG"
+    idents = org.get("identifier", [])
+    if idents:
+        fields[1] = idents[0].get("value", "")
+    fields[2] = org.get("name", "")
+    types = org.get("type", [])
+    if types:
+        fields[3] = _fhir_code_to_v2(types[0])
+    return "|".join(fields)
+
+
+def _consent_to_arv(consent: dict) -> str:
+    """Consent → ARV."""
+    fields = [""] * 5
+    fields[0] = "ARV"
+    cats = consent.get("category", [])
+    if cats:
+        fields[2] = _fhir_code_to_v2(cats[0])
+    return "|".join(fields)
+
+
+def _operationoutcome_to_err(oo: dict) -> str:
+    """OperationOutcome → ERR."""
+    fields = [""] * 9
+    fields[0] = "ERR"
+    issues = oo.get("issue", [])
+    if issues:
+        issue = issues[0]
+        fields[2] = issue.get("expression", [""])[0] if issue.get("expression") else ""
+        fields[3] = issue.get("code", "")
+        fields[4] = {"warning": "W", "information": "I", "error": "E", "fatal": "F"}.get(issue.get("severity", ""), "E")
+        details = issue.get("details", {})
+        fields[7] = details.get("text", "")
+        fields[8] = issue.get("diagnostics", "")
+    return "|".join(fields)
+
+
 _R5_TO_V2_CONVERTERS: dict[str, Any] = {
+    # Tier 1
     "Patient": _patient_to_pid,
     "Encounter": _encounter_to_pv1,
     "Observation": _observation_to_obx,
@@ -1869,6 +2729,15 @@ _R5_TO_V2_CONVERTERS: dict[str, Any] = {
     "DocumentReference": _documentreference_to_txa,
     "DiagnosticReport": _diagnosticreport_to_obr,
     "Appointment": _appointment_to_sch,
+    # Tier 2+3
+    "Procedure": _procedure_to_pr1,
+    "MedicationAdministration": _medicationadmin_to_rxg,
+    "Provenance": _provenance_to_evn,
+    "Device": _device_to_sft,
+    "Practitioner": _practitioner_to_stf,
+    "Organization": _organization_to_org,
+    "Consent": _consent_to_arv,
+    "OperationOutcome": _operationoutcome_to_err,
 }
 
 

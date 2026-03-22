@@ -7,7 +7,7 @@ Production SDK: FHIR R5 (157 resources) | R4↔R5 | V2.x↔R5 | MLLP | ACK | PII
     from brightohir import generate_ack, mask_v2, mask_fhir
     from brightohir.transport import MLLPServer, MLLPClient
 """
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 
 from .r5 import R5
 from .convert_r4r5 import r4_to_r5, r5_to_r4, conversion_status
