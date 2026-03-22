@@ -1,0 +1,5 @@
+{"code": "1", "display_vi": "Người lao động", "display_en": "Employee", "contribution_rate": 4.5, "employer_share": 3.0, "employee_share": 1.5, "copay_percent": 20}
+{"code": "2", "display_vi": "Hưu trí, mất sức lao động", "display_en": "Retiree", "contribution_rate": 4.5, "employer_share": 4.5, "employee_share": 0, "copay_percent": 5}
+{"code": "3", "display_vi": "Trẻ em dưới 6 tuổi", "display_en": "Children under 6", "contribution_rate": 0, "employer_share": 0, "employee_share": 0, "copay_percent": 0}
+{"code": "4", "display_vi": "Hộ nghèo", "display_en": "Poor household", "contribution_rate": 0, "employer_share": 0, "employee_share": 0, "copay_percent": 5}
+{"code": "5", "display_vi": "Học sinh, sinh viên", "display_en": "Student", "contribution_rate": 4.5, "employer_share": 3.0, "employee_share": 1.5, "copay_percent": 20}
