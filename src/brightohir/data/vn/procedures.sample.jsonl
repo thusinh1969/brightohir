@@ -1,0 +1,3 @@
+{"code": "DVKT.001234", "display_vi": "Phẫu thuật cắt ruột thừa nội soi", "display_en": "Laparoscopic appendectomy", "category": "surgery", "tier_required": 2, "bhyt_covered": true, "bhyt_price": 5500000}
+{"code": "DVKT.002345", "display_vi": "Siêu âm bụng tổng quát", "display_en": "Abdominal ultrasound", "category": "imaging", "tier_required": 4, "bhyt_covered": true, "bhyt_price": 100000}
+{"code": "DVKT.003456", "display_vi": "Nội soi dạ dày", "display_en": "Upper GI endoscopy", "category": "endoscopy", "tier_required": 2, "bhyt_covered": true, "bhyt_price": 800000}

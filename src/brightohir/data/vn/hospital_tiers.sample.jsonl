@@ -1,0 +1,5 @@
+{"code": "HANG_DAC_BIET", "tier": 0, "display_vi": "Hạng đặc biệt", "display_en": "Special tier", "examples": "BV Bạch Mai, Chợ Rẫy, Trung ương Huế", "exam_price": 39000}
+{"code": "HANG_1", "tier": 1, "display_vi": "Hạng I", "display_en": "Tier 1", "examples": "BV Đa khoa tỉnh", "exam_price": 35000}
+{"code": "HANG_2", "tier": 2, "display_vi": "Hạng II", "display_en": "Tier 2", "examples": "BV quận/huyện lớn", "exam_price": 29000}
+{"code": "HANG_3", "tier": 3, "display_vi": "Hạng III", "display_en": "Tier 3", "examples": "BV quận/huyện nhỏ", "exam_price": 25000}
+{"code": "HANG_4", "tier": 4, "display_vi": "Hạng IV", "display_en": "Tier 4", "examples": "Trạm y tế xã, phòng khám tư", "exam_price": 22000}

@@ -1,0 +1,3 @@
+{"code": "MAU.001", "display_vi": "Hồng cầu lắng", "display_en": "Packed red blood cells", "unit": "đơn vị", "storage": "2-6°C", "shelf_life_days": 42, "bhyt_covered": true}
+{"code": "MAU.002", "display_vi": "Huyết tương tươi đông lạnh", "display_en": "Fresh frozen plasma", "unit": "đơn vị", "storage": "-25°C", "shelf_life_days": 365, "bhyt_covered": true}
+{"code": "MAU.003", "display_vi": "Tiểu cầu đậm đặc", "display_en": "Platelet concentrate", "unit": "đơn vị", "storage": "20-24°C", "shelf_life_days": 5, "bhyt_covered": true}
