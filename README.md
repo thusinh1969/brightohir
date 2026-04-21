@@ -537,6 +537,6 @@ GitHub: [github.com/thusinh1969/brightohir](https://github.com/thusinh1969/brigh
 
 ---
 
-*Built with inspiration to serve millions of patients across Vietnam, everyday.*
+*Built with inspiration by Long Châu to serve millions of patients across Vietnam, everyday.*
 
-*Được xây dựng với cảm hứng phục vụ hàng triệu bệnh nhân trên khắp Việt Nam, mỗi ngày.*
+*Được xây dựng với cảm hứng phục vụ hàng triệu bệnh nhân trên khắp Việt Nam, mỗi ngày của Chuỗi Nhà Thuốc Long Châu.*
