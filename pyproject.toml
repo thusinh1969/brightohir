@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "brightohir"
-version = "2.1.2"
+version = "2.2.0"
 description = "BrighTO HL7 Interoperability Runtime — FHIR R5, R4↔R5, V2.x↔R5 Python SDK"
 readme = "README.md"
 license = {text = "MIT"}
@@ -61,3 +61,13 @@ pythonpath = ["src"]
 [tool.ruff]
 target-version = "py310"
 line-length = 120
+
+[tool.ruff.lint]
+# Deliberate patterns in this codebase:
+# - BLE001: broad except for graceful degradation / optional dependencies
+# - G201: logger.error(..., exc_info=True) with a static message
+# - RUF012: class-level caches/fixtures (not instance defaults)
+# - PERF102 / C401: non-semantic iteration micro-optimizations
+# - TRY004: config loaders raise ValueError for malformed mapping (a value
+#   problem, not an argument-type problem)
+ignore = ["BLE001", "G201", "RUF012", "PERF102", "C401", "TRY004"]

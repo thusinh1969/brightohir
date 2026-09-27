@@ -88,7 +88,7 @@ pip install brightohir[all]             # Everything / Tất cả
 git clone https://github.com/thusinh1969/brightohir.git
 cd brightohir
 pip install -e ".[dev]"
-pytest tests/ -v  # 170 tests
+pytest tests/ -v  # 211 tests
 ```
 
 **Requirements:** Python ≥ 3.10 — **Dependencies:** `fhir.resources` ≥ 8.0.0, `hl7apy` ≥ 1.3.5, `pyyaml` ≥ 6.0
@@ -130,7 +130,7 @@ print("✅ All working!")
 
 ```bash
 # Run full test suite
-pytest tests/ -v    # Expected: 170 passed
+pytest tests/ -v    # Expected: 211 passed
 ```
 
 ---
@@ -173,6 +173,14 @@ conv = V2Converter()
 bundle = conv.convert(adt_a01_string)             # Full control
 patient = conv.extract_resource("Patient")
 obs_list = conv.extract_all("Observation")
+```
+
+**Idempotent conversion (deterministic IDs):** by default each conversion assigns random UUIDs, so re-processing the same message (e.g. an HL7 re-delivery/retry) yields different FHIR `id`s and duplicates records on upsert. Pass `deterministic=True` to derive stable ids from natural keys (identifiers, then type-specific content) so the same input always produces the same ids and consistent references.
+
+```python
+bundle = v2_to_r5(adt_a01_string, deterministic=True)   # stable ids
+conv = V2Converter(deterministic=True)
+bundle = conv.convert(adt_a01_string)                    # instance-level flag
 ```
 
 ### 3. FHIR R5 → V2.x
@@ -239,6 +247,7 @@ lab = VN.lab("XN.001")               # → {"code": "XN.001", "loinc": "718-7", 
 bhyt = VN.bhyt_object("3")           # → {"code": "3", "display_vi": "Trẻ em dưới 6 tuổi", "copay_percent": 0}
 
 # Search Vietnamese or English / Tìm kiếm tiếng Việt hoặc Anh
+# Accent-insensitive & indexed: "dai thao duong" also matches "Đái tháo đường"
 results = VN.search("icd10", "đái tháo đường")   # → [{"code": "E11.9", ...}]
 results = VN.search("drug", "paracetamol")        # → [{"code": "TD.0001", ...}]
 
@@ -302,6 +311,22 @@ server.start()             # Blocking
 # server.start_background() # Or threaded
 ```
 
+**TLS encryption — Mã hóa TLS:**
+
+```python
+# Server: require a certificate
+server = MLLPServer("0.0.0.0", 2575, handler=handle_message,
+                    tls=True, certfile="server.crt", keyfile="server.key")
+
+# Client: verify the server certificate (default context) …
+client = MLLPClient("hospital-his.local", 2575, tls=True)
+
+# … or trust a private CA / self-signed cert in closed networks
+import ssl
+client = MLLPClient("hospital-his.local", 2575,
+                    ssl_context=ssl.create_default_context(cafile="ca.crt"))
+```
+
 ### MLLP client — send V2 to external systems / Gửi V2 ra ngoài
 
 ```python
@@ -360,12 +385,27 @@ WantedBy=multi-user.target
 
 ## Other use cases — Cách dùng khác
 
-**FHIR REST API:**
+**FHIR server client + $validate:**
 ```python
-from fhirpy import SyncFHIRClient  # pip install brightohir[client]
-client = SyncFHIRClient("https://fhir.example.com/r5", authorization="Bearer TOKEN")
-fhir_patient = client.resource("Patient", **R5.to_dict(patient))
-fhir_patient.save()
+from brightohir import FHIRClient
+
+client = FHIRClient("https://fhir.example.com/r5", authorization="Bearer TOKEN")
+ok = client.is_valid(R5.to_dict(patient))     # server-side Patient/$validate
+outcome = client.validate(R5.to_dict(patient))
+created = client.create(R5.to_dict(patient))   # requires `pip install brightohir[client]`
+results = client.search("Patient", name="Nguyen")
+```
+
+**Custom Z-segment mapping / Map Z-segment tùy chỉnh:**
+```python
+from brightohir import v2_to_r5, load_custom_mappings
+
+load_custom_mappings("zsegments.yaml")  # declarative segment → FHIR mapping
+bundle = v2_to_r5(raw_msg)              # now converts your Zxx segments too
+
+# Or programmatically:
+from brightohir import V2Converter
+V2Converter.register_segment("ZAL", "Observation", my_zal_converter)
 ```
 
 **Batch file conversion / Chuyển đổi hàng loạt:**
@@ -437,13 +477,11 @@ logging.basicConfig(level=logging.DEBUG)
 |---|---|---|
 | V2 segments | 51 of ~120 types (31 creators + 20 enrichers). Remaining ~70 rare/obsolete types pass through unconverted. | 51/~120 loại. ~70 loại hiếm/lỗi thời truyền qua không chuyển đổi. |
 | R5→V2 | 23 reverse converters. Missing niche types: Parameters, Account (guarantor). | 23 bộ đảo ngược. Thiếu vài loại đặc thù. |
-| MLLP | No built-in TLS. Use reverse proxy. | Không có TLS tích hợp. Dùng reverse proxy. |
-| Z-segments | Custom Z-segments ignored. Pre-process before convert. | Z-segment bỏ qua. Tiền xử lý trước convert. |
-| FHIR operations | No $validate, $process-message. Use fhirpy directly. | Không có $validate. Dùng fhirpy trực tiếp. |
+| Z-segments | Custom `Zxx` segments are captured (never dropped) and can be mapped via the extension framework; unmapped ones still don't auto-convert. | Z-segment được ghi lại và có thể map qua framework; segment chưa map vẫn không tự convert. |
+| FHIR operations | `$validate` provided; other operations (e.g. `$process-message`) still require fhirpy or direct HTTP. | Có `$validate`; các operation khác vẫn cần fhirpy hoặc HTTP trực tiếp. |
 
 ### Roadmap
 
-- **v2.2** — Z-segment extension framework, custom YAML mapping loader
 - **v2.3** — CDA ↔ FHIR R5 (Vietnamese discharge summaries)
 - **v3.0** — Async MLLP (asyncio), WebSocket, FHIR Subscription
 
@@ -460,7 +498,7 @@ logging.basicConfig(level=logging.DEBUG)
 ## Testing — Kiểm thử
 
 ```bash
-pytest tests/ -v                    # All 170 tests
+pytest tests/ -v                    # All 211 tests
 pytest tests/test_sdk.py -v         # Core: R5, R4↔R5, V2 basics (37 tests)
 pytest tests/test_v11.py -v         # v1.1: ACK, PII, MLLP, segment converters (47 tests)
 pytest tests/test_v20.py -v         # v2.0: Tier 2+3 creators, enrichers, reverse (45 tests)
@@ -474,14 +512,16 @@ pytest tests/ --cov=brightohir      # With coverage
 
 ```
 src/brightohir/
-├── __init__.py          # 33 public exports
+├── __init__.py          # public exports
 ├── r5.py                # R5 factory — 157 resources
 ├── convert_r4r5.py      # R4 ↔ R5 — 59 transforms
-├── convert_v2.py        # V2 ↔ R5 — 31 creators + 20 enrichers + 23 reverse
-├── vn.py                # Vietnamese code systems — 11 systems, JSONL loader, FHIR export
+├── convert_v2.py        # V2 ↔ R5 — 31 creators + 20 enrichers + 23 reverse + deterministic ids
+├── custom.py            # Z-segment framework + YAML/JSON mapping loader
+├── client.py            # FHIR server client + $validate
+├── vn.py                # Vietnamese code systems — 11 systems, indexed search, FHIR export
 ├── registry.py          # 277 standard mappings
 ├── ack.py               # ACK/NAK generator
-├── transport.py         # MLLP server + client
+├── transport.py         # MLLP server + client (TLS support)
 ├── security.py          # PII masking (4 strategies)
 ├── data/vn/             # Vietnamese JSONL data (sample + full)
 │   ├── SCHEMA.md        # Data format specification

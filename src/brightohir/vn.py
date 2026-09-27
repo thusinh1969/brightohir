@@ -13,11 +13,23 @@ Usage:
 from __future__ import annotations
 
 import json
-import os
+import unicodedata
 from pathlib import Path
 from typing import Any
 
 __all__ = ["VN", "VNCodeSystem"]
+
+
+def _normalize_vn_text(text: str) -> str:
+    """Lowercase and strip Vietnamese diacritics for accent-insensitive search.
+
+    "Đái tháo đường" → "dai thao duong"; "Paracetamol" → "paracetamol".
+    """
+    text = unicodedata.normalize("NFD", str(text))
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    # NFD does not decompose đ/Đ (U+0111/U+0110) — handle them explicitly.
+    text = text.replace("đ", "d").replace("Đ", "d")
+    return text.lower()
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # FHIR CodeSystem URIs for Vietnamese code systems
@@ -139,7 +151,22 @@ class VNCodeSystem:
         self.name_vi = meta["name_vi"]
         self.authority = meta["authority"]
         self._codes: dict[str, dict[str, Any]] = {}  # code → full record
-        self._search_index: list[tuple[str, str]] = []  # (lowered text, code)
+        self._search_index: list[tuple[str, str]] = []  # (normalized text, code)
+        self._token_index: dict[str, set[str]] = {}  # token → {codes}
+
+    def _add_record(self, code: str, record: dict[str, Any]) -> None:
+        """Index a single record for fast accent-insensitive search."""
+        self._codes[str(code)] = record
+        search_parts = []
+        for field in ("display_vi", "display_en", "display_modern",
+                      "active_ingredient", "latin", "code"):
+            val = record.get(field)
+            if val:
+                search_parts.append(str(val))
+        normalized = _normalize_vn_text(" ".join(search_parts))
+        self._search_index.append((normalized, str(code)))
+        for token in normalized.split():
+            self._token_index.setdefault(token, set()).add(str(code))
 
     def load_jsonl(self, path: str | Path) -> int:
         """Load JSONL file. Returns number of records loaded."""
@@ -156,15 +183,7 @@ class VNCodeSystem:
                 code = record.get("code")
                 if not code:
                     continue
-                self._codes[str(code)] = record
-                # Build search index: combine all display fields
-                search_parts = []
-                for field in ("display_vi", "display_en", "display_modern",
-                              "active_ingredient", "latin", "code"):
-                    val = record.get(field)
-                    if val:
-                        search_parts.append(str(val).lower())
-                self._search_index.append((" ".join(search_parts), str(code)))
+                self._add_record(code, record)
                 count += 1
         return count
 
@@ -173,17 +192,42 @@ class VNCodeSystem:
         return self._codes.get(str(code))
 
     def search(self, query: str, max_results: int = 10) -> list[dict[str, Any]]:
-        """Search by Vietnamese or English name. Simple substring match."""
-        q = query.lower().strip()
-        if not q:
+        """Search by Vietnamese or English name.
+
+        Accent-insensitive: "dai thao duong" matches "Đái tháo đường".
+        Multi-word queries match codes containing every word (tokenized index);
+        otherwise falls back to a substring scan.
+        """
+        q = _normalize_vn_text(query)
+        tokens = [t for t in q.split() if t]
+        if not tokens:
             return []
-        results = []
-        for text, code in self._search_index:
-            if q in text:
-                results.append(self._codes[code])
-                if len(results) >= max_results:
-                    break
-        return results
+
+        candidates: set[str] | None = None
+        for token in tokens:
+            codes = self._token_index.get(token)
+            if codes is None:
+                candidates = set()
+                break
+            candidates = codes if candidates is None else (candidates & codes)
+
+        matched: list[str] = []
+        if candidates:
+            # Preserve insertion order while filtering by the candidate set.
+            for _, code in self._search_index:
+                if code in candidates:
+                    matched.append(code)
+                    if len(matched) >= max_results:
+                        break
+        else:
+            # Substring fallback for partial-word queries.
+            for text, code in self._search_index:
+                if q in text:
+                    matched.append(code)
+                    if len(matched) >= max_results:
+                        break
+
+        return [self._codes[code] for code in matched]
 
     def to_codeable_concept(self, code: str) -> dict[str, Any] | None:
         """Convert code to FHIR R5 CodeableConcept."""
@@ -418,15 +462,7 @@ class _VNRegistry:
             code = record.get("code")
             if not code:
                 continue
-            cs._codes[str(code)] = record
-            # Build search index
-            search_parts = []
-            for field in ("display_vi", "display_en", "display_modern",
-                          "active_ingredient", "latin", "code"):
-                val = record.get(field)
-                if val:
-                    search_parts.append(str(val).lower())
-            cs._search_index.append((" ".join(search_parts), str(code)))
+            cs._add_record(code, record)
             count += 1
 
         if count > 0:

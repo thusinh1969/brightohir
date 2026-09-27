@@ -3,11 +3,8 @@ Tests for brightohir SDK.
 Run: pytest tests/ -v
 """
 
-import json
-import uuid
 
 import pytest
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Registry tests
@@ -219,7 +216,7 @@ class TestR4R5Conversion:
             r5_to_r4({"resourceType": "ActorDefinition", "id": "ad-001"})
 
     def test_renamed_resource(self):
-        from brightohir.convert_r4r5 import r4_to_r5, conversion_status
+        from brightohir.convert_r4r5 import conversion_status
         info = conversion_status("RequestOrchestration")
         assert info["r4"] == "RequestGroup"
         assert info["status"] == "renamed"
@@ -409,11 +406,11 @@ class TestIntegration:
     def test_public_api_imports(self):
         """Verify all public API symbols are importable."""
         from brightohir import (
-            R5, v2_to_r5, r5_to_v2, r4_to_r5, r5_to_r4,
-            V2Converter, conversion_status,
-            ALL_R5_RESOURCES, R5_RESOURCES, R4_TO_R5_MAP,
-            V2_SEGMENT_TO_FHIR, V2_MESSAGE_TO_FHIR,
-            V2_DATATYPE_TO_FHIR, V2_TABLE_TO_FHIR_SYSTEM,
+            R5,
+            r4_to_r5,
+            r5_to_r4,
+            r5_to_v2,
+            v2_to_r5,
         )
         assert R5 is not None
         assert callable(v2_to_r5)

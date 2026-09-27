@@ -33,17 +33,18 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+logger = logging.getLogger("brightohir.convert_v2")
+
 from .registry import (
-    V2_DATATYPE_TO_FHIR,
-    V2_MESSAGE_TO_FHIR,
-    V2_SEGMENT_TO_FHIR,
     V2_TABLE_TO_FHIR_SYSTEM,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Vietnamese code system integration (optional — auto-enriches if VN data loaded)
@@ -265,12 +266,31 @@ def _get_components(field) -> list:
 
 
 def _field_str(field) -> str:
-    """Extract plain string value from an hl7apy field."""
+    """Extract plain string value from an hl7apy field.
+
+    hl7apy returns repeating (and Z-segment) fields as a list even for a single
+    repetition, so unwrap one-element sequences defensively.
+    """
     if field is None:
         return ""
+    if isinstance(field, (list, tuple)):
+        if not field:
+            return ""
+        field = field[0]
     if hasattr(field, "value"):
         return str(field.value) if field.value else ""
     return str(field)
+
+
+def _segment_to_er7(segment) -> str:
+    """Serialize an hl7apy segment back to its ER7 string."""
+    to_er7 = getattr(segment, "to_er7", None)
+    if callable(to_er7):
+        try:
+            return str(to_er7())
+        except Exception as exc:
+            logger.debug("Could not serialize segment %s to ER7: %s", segment, exc)
+    return str(segment)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -424,9 +444,7 @@ def _obx_to_observation(segment) -> dict:
                 obs["valueQuantity"] = {"value": float(_field_str(val))}
             except ValueError:
                 obs["valueString"] = _field_str(val)
-        elif vtype_str == "ST":
-            obs["valueString"] = _field_str(val)
-        elif vtype_str == "TX":
+        elif vtype_str == "ST" or vtype_str == "TX":
             obs["valueString"] = _field_str(val)
         elif vtype_str in ("CWE", "CE", "CNE"):
             obs["valueCodeableConcept"] = _cwe_to_codeableconcept(val) if hasattr(val, "children") else {
@@ -1886,17 +1904,23 @@ _SEGMENT_ENRICHERS: dict[str, Any] = {
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _get_field_value(segment, index: int) -> Any:
-    """Get field value from hl7apy segment by 1-based index."""
+    """Get field value from hl7apy segment by 1-based index.
+
+    hl7apy exposes fields as ``<segment>_<n>`` attributes (e.g. ``pid_3``).
+    ``getattr`` returns the field for any *valid* field name (an empty list
+    for an unpopulated repeating field, or a Field for a single-value field)
+    and returns ``None`` for unknown field names. Positional ``children``
+    iteration is NOT a valid fallback here: hl7apy's ``children`` only
+    contains *populated* fields, so it cannot be indexed by field number.
+    """
     try:
         seg_name = segment.name if hasattr(segment, "name") else str(type(segment).__name__)
         field_name = f"{seg_name.lower()}_{index}"
         field = getattr(segment, field_name, None)
-        if field is None:
-            # Fallback: try by children index
-            children = list(segment.children) if hasattr(segment, "children") else []
-            if index < len(children):
-                return children[index]
-            return None
+        # hl7apy returns Z-segment and repeating fields as a list even for a
+        # single repetition; unwrap to a single Field for scalar access.
+        if isinstance(field, (list, tuple)):
+            return field[0] if field else None
         return field
     except Exception:
         return None
@@ -1938,7 +1962,6 @@ def _normalize_v2_message(raw: str) -> str:
     3. Strip leading/trailing whitespace
     4. Remove blank lines
     """
-    import re
 
     # 1. Normalize line endings: \r\n → \r, \n → \r
     msg = raw.strip()
@@ -1970,6 +1993,110 @@ def _normalize_v2_message(raw: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Deterministic resource IDs — idempotent conversions
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# By default converters assign random UUIDs, so re-converting the *same* V2
+# message yields different FHIR `id`s on every run. For integration engines
+# that upsert into a FHIR server this causes duplicates on every HL7
+# re-delivery/retry. When `deterministic=True`, resource ids are instead
+# derived from natural keys (identifiers, then type-specific fallbacks, then
+# the full resource content), so the same input always produces the same ids
+# and references stay consistent.
+
+def _deterministic_id(resource_type: str, seed: str) -> str:
+    """Stable, content-derived FHIR resource id (SHA-1 → 16 hex chars)."""
+    return hashlib.sha1(f"{resource_type}|{seed}".encode()).hexdigest()[:16]
+
+
+_REFERENCE_KEYS = {"reference", "fullUrl"}
+
+
+def _strip_references(node: Any) -> Any:
+    """Deep-remove ``reference``/``fullUrl`` keys so content seeds are stable.
+
+    References point at other resources' ids, which may be random UUIDs; they
+    must not leak into a deterministic content hash.
+    """
+    if isinstance(node, dict):
+        return {k: _strip_references(v) for k, v in node.items() if k not in _REFERENCE_KEYS}
+    if isinstance(node, list):
+        return [_strip_references(v) for v in node]
+    return node
+
+
+def _content_seed(resource: dict) -> str:
+    """Serialized resource content with the (random) id and references removed."""
+    body = {k: v for k, v in resource.items() if k != "id"}
+    return json.dumps(
+        _strip_references(body),
+        sort_keys=True, ensure_ascii=False, default=str,
+    )
+
+
+def _natural_key(resource: dict) -> str:
+    """Derive a stable natural key for a resource, preferring identifiers.
+
+    The key must never depend on another resource's (possibly random) id, so
+    reference fields are deliberately excluded; type-specific fallbacks use
+    only the resource's own intrinsic content.
+    """
+    rt = resource.get("resourceType", "")
+
+    # 1. Any explicit identifier is the strongest natural key.
+    for ident in resource.get("identifier") or []:
+        val = ident.get("value")
+        if val:
+            return f"identifier|{ident.get('system', '')}|{val}"
+
+    # 2. Type-specific fallbacks.
+    if rt == "Patient":
+        name = (resource.get("name") or [{}])[0]
+        return "name|" + "|".join([
+            name.get("family", ""),
+            " ".join(name.get("given") or []),
+            resource.get("birthDate", ""),
+            resource.get("gender", ""),
+        ])
+    if rt == "Encounter":
+        cls = resource.get("class") or []
+        code = (cls[0].get("coding") or [{}])[0].get("code", "") if cls else ""
+        start = (resource.get("actualPeriod") or {}).get("start", "")
+        return f"encounter|{code}|{start}"
+    if rt == "Observation":
+        coding = (resource.get("code") or {}).get("coding") or []
+        code = coding[0].get("code", "") if coding else ""
+        eff = resource.get("effectiveDateTime", "")
+        vq = resource.get("valueQuantity")
+        val = vq.get("value", "") if isinstance(vq, dict) else resource.get("valueString", "")
+        return f"observation|{code}|{eff}|{val}"
+    if rt == "RelatedPerson":
+        name = (resource.get("name") or [{}])[0]
+        rel = resource.get("relationship") or []
+        rel_code = (rel[0].get("coding") or [{}])[0].get("code", "") if rel else ""
+        return f"related|{name.get('family', '')}|{rel_code}"
+
+    # 3. Generic fallback: reference-free content hash.
+    return _content_seed(resource)
+
+
+def _rewrite_references(node: Any, id_map: dict[str, str]) -> None:
+    """Rewrite ``Type/{old_id}`` references in-place to point at new ids."""
+    if isinstance(node, dict):
+        for key, val in node.items():
+            if key == "reference" and isinstance(val, str):
+                for old, new in id_map.items():
+                    if old and val.endswith("/" + old):
+                        node[key] = val[: -len(old)] + new
+                        break
+            else:
+                _rewrite_references(val, id_map)
+    elif isinstance(node, list):
+        for item in node:
+            _rewrite_references(item, id_map)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # V2Converter: Main converter class
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -1984,21 +2111,78 @@ class V2Converter:
         patient = conv.extract_resource("Patient")
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, deterministic: bool = False) -> None:
+        self.deterministic = deterministic
         self._resources: dict[str, list[dict]] = {}
         self._raw_message = None
+        self.z_segments: list[dict[str, str]] = []
 
-    def convert(self, er7_message: str, *, message_type: str | None = None) -> dict:
+    @staticmethod
+    def register_segment(segment_name: str, resource_type: str, converter) -> None:
+        """Register a custom segment → FHIR resource converter (e.g. a Z-segment).
+
+        Args:
+            segment_name: Segment id, e.g. ``"ZAL"``.
+            resource_type: FHIR resource type the converter produces.
+            converter: Callable(segment) → resource dict.
+
+        Example:
+            V2Converter.register_segment("ZAL", "Observation", my_zal_converter)
+        """
+        _SEGMENT_CONVERTERS[segment_name.upper()] = (resource_type, converter)
+
+    @staticmethod
+    def register_enricher(segment_name: str, enricher) -> None:
+        """Register a custom segment enricher (modifies existing resources).
+
+        Args:
+            segment_name: Segment id, e.g. ``"ZIN"``.
+            enricher: Callable(segment, resources: dict[str, list[dict]]) → None.
+        """
+        _SEGMENT_ENRICHERS[segment_name.upper()] = enricher
+
+    @staticmethod
+    def register_custom_mappings(mapping: dict) -> list[str]:
+        """Register converters from a declarative mapping dict. See
+        :func:`brightohir.custom.load_custom_mappings` for the YAML/JSON schema.
+
+        Returns the list of segment names registered.
+        """
+        from .custom import register_custom_mappings as _register
+        return _register(mapping)
+
+    @staticmethod
+    def load_custom_mappings(path: str) -> list[str]:
+        """Load and register converters from a YAML (or JSON) mapping file.
+
+        Returns the list of segment names registered.
+        """
+        from .custom import load_custom_mappings as _load
+        return _load(path)
+
+    def convert(
+        self,
+        er7_message: str,
+        *,
+        message_type: str | None = None,
+        deterministic: bool | None = None,
+    ) -> dict:
         """Convert a V2 ER7 message string to a FHIR R5 Bundle.
 
         Args:
             er7_message: Raw HL7 V2 pipe-delimited message
             message_type: Override message type (auto-detected from MSH-9)
+            deterministic: If True, derive stable resource ids from natural
+                keys so re-converting the same message is idempotent. Overrides
+                the instance-level ``deterministic`` flag when not None.
 
         Returns:
             FHIR R5 Bundle dict
         """
+        if deterministic is not None:
+            self.deterministic = deterministic
         self._resources.clear()
+        self.z_segments.clear()
 
         # ── Normalize message ─────────────────────────────────────────
         er7_message = _normalize_v2_message(er7_message)
@@ -2010,7 +2194,7 @@ class V2Converter:
             # Fallback: manual parse
             msg = None
             return self._convert_manual(er7_message, message_type)
-        except Exception as e:
+        except Exception:
             # UnsupportedVersion, InvalidName, or any parse error → manual fallback
             msg = None
             return self._convert_manual(er7_message, message_type)
@@ -2027,9 +2211,20 @@ class V2Converter:
             elif seg_name in _SEGMENT_ENRICHERS:
                 enricher = _SEGMENT_ENRICHERS[seg_name]
                 enricher(segment, self._resources)
+            elif seg_name.startswith("Z"):
+                # Capture custom Z-segments instead of silently dropping them,
+                # so integrators can inspect and process them downstream.
+                self.z_segments.append({
+                    "name": seg_name,
+                    "raw": _segment_to_er7(segment),
+                })
 
         # Build cross-references
         self._link_references()
+
+        # Optional: make ids deterministic/idempotent
+        if self.deterministic:
+            self._stabilize_ids()
 
         # Build Bundle
         all_resources = []
@@ -2178,7 +2373,7 @@ class V2Converter:
     def _attach_note(self, text: str) -> None:
         """Attach NTE note to last Observation or ServiceRequest."""
         for rt in ("Observation", "ServiceRequest", "DiagnosticReport"):
-            if rt in self._resources and self._resources[rt]:
+            if self._resources.get(rt):
                 last = self._resources[rt][-1]
                 last.setdefault("note", []).append({"text": text})
                 return
@@ -2186,7 +2381,7 @@ class V2Converter:
     def _link_references(self) -> None:
         """Add cross-references between resources (Patient→Encounter, etc.)."""
         patient_ref = None
-        if "Patient" in self._resources and self._resources["Patient"]:
+        if self._resources.get("Patient"):
             pid = self._resources["Patient"][0]["id"]
             patient_ref = {"reference": f"Patient/{pid}"}
 
@@ -2209,7 +2404,7 @@ class V2Converter:
                 r.setdefault("subject", []).append(patient_ref)
 
         # Encounter reference
-        if "Encounter" in self._resources and self._resources["Encounter"]:
+        if self._resources.get("Encounter"):
             enc_id = self._resources["Encounter"][0]["id"]
             enc_ref = {"reference": f"Encounter/{enc_id}"}
             for rt in ("Observation", "Condition", "AllergyIntolerance", "Immunization",
@@ -2220,7 +2415,7 @@ class V2Converter:
                     r["encounter"] = enc_ref
 
         # ServiceRequest → DiagnosticReport.basedOn
-        if "ServiceRequest" in self._resources and self._resources["ServiceRequest"]:
+        if self._resources.get("ServiceRequest"):
             sr_id = self._resources["ServiceRequest"][0]["id"]
             sr_ref = {"reference": f"ServiceRequest/{sr_id}"}
             for r in self._resources.get("DiagnosticReport", []):
@@ -2229,7 +2424,7 @@ class V2Converter:
                 r.setdefault("request", []).append(sr_ref)
 
         # DiagnosticReport → Observation.derivedFrom / result
-        if "DiagnosticReport" in self._resources and self._resources["DiagnosticReport"]:
+        if self._resources.get("DiagnosticReport"):
             dr = self._resources["DiagnosticReport"][0]
             obs_refs = [{"reference": f"Observation/{o['id']}"} for o in self._resources.get("Observation", [])]
             if obs_refs:
@@ -2246,6 +2441,38 @@ class V2Converter:
             if "_guarantor_rp" in acct:
                 rp = acct.pop("_guarantor_rp")
                 self._resources.setdefault("RelatedPerson", []).append(rp)
+
+    def _stabilize_ids(self) -> None:
+        """Rewrite all resource ids (and their references) deterministically.
+
+        Replaces random UUIDs with stable ids derived from each resource's
+        natural key, and rewrites every ``Type/{id}`` reference so the bundle
+        stays internally consistent. Called only when ``deterministic`` is set.
+        """
+        id_map: dict[str, str] = {}
+        seen: set[tuple[str, str]] = set()
+
+        # Iterate in a deterministic order so collision suffixes are stable.
+        for resource_type in sorted(self._resources):
+            for resource in self._resources[resource_type]:
+                old_id = resource.get("id")
+                if not old_id:
+                    continue
+                seed = _natural_key(resource)
+                new_id = _deterministic_id(resource_type, seed)
+                # Disambiguate identical-content resources within one message
+                # deterministically (e.g. two identical OBX results).
+                counter = 0
+                while (resource_type, new_id) in seen:
+                    counter += 1
+                    new_id = _deterministic_id(resource_type, f"{seed}|#{counter}")
+                seen.add((resource_type, new_id))
+                id_map[old_id] = new_id
+                resource["id"] = new_id
+
+        for resources in self._resources.values():
+            for resource in resources:
+                _rewrite_references(resource, id_map)
 
     def _build_bundle(self, resources: list[dict], message_type: str | None) -> dict:
         """Assemble the final FHIR Bundle."""
@@ -2849,13 +3076,15 @@ def r5_to_v2(
 # Convenience functions
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def v2_to_r5(er7_message: str) -> dict:
+def v2_to_r5(er7_message: str, *, deterministic: bool = False) -> dict:
     """Quick-convert a V2 message to FHIR R5 Bundle.
 
     Args:
         er7_message: Raw HL7 V2 ER7 string
+        deterministic: If True, derive stable resource ids from natural keys
+            so re-converting the same message is idempotent.
 
     Returns:
         FHIR R5 Bundle dict
     """
-    return V2Converter().convert(er7_message)
+    return V2Converter(deterministic=deterministic).convert(er7_message)

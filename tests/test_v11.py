@@ -2,8 +2,6 @@
 Tests for brightohir v1.1.0 — new segment converters, ACK, PII, transport.
 Run: pytest tests/test_v11.py -v
 """
-import json
-import pytest
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -322,7 +320,7 @@ class TestR5ToV2Reverse:
 
     def test_full_bundle_roundtrip(self):
         """V2 → R5 → V2: verify all segments survive roundtrip."""
-        from brightohir import v2_to_r5, r5_to_v2
+        from brightohir import r5_to_v2, v2_to_r5
         bundle = v2_to_r5(FULL_ADT)
         v2_back = r5_to_v2(bundle, message_type="ADT_A01")
         assert "MSH|" in v2_back
@@ -453,8 +451,9 @@ class TestPIIMasking:
 
     def test_original_unmodified(self):
         """Masking must not modify the original dict."""
-        from brightohir import mask_fhir
         import copy
+
+        from brightohir import mask_fhir
         original = copy.deepcopy(self.SAMPLE_PATIENT)
         _ = mask_fhir(self.SAMPLE_PATIENT)
         assert self.SAMPLE_PATIENT == original
@@ -474,14 +473,14 @@ class TestMLLP:
         assert b"MSH" in framed
 
     def test_mllp_decode(self):
-        from brightohir.transport import mllp_encode, mllp_decode
+        from brightohir.transport import mllp_decode, mllp_encode
         original = "MSH|^~\\&|A|B\rPID|1||999\r"
         framed = mllp_encode(original)
         decoded = mllp_decode(framed)
         assert decoded == original
 
     def test_mllp_roundtrip(self):
-        from brightohir.transport import mllp_encode, mllp_decode
+        from brightohir.transport import mllp_decode, mllp_encode
         msg = FULL_ADT.replace("\n", "\r")
         assert mllp_decode(mllp_encode(msg)) == msg
 
@@ -500,7 +499,7 @@ class TestMLLP:
 class TestFullIntegration:
     def test_v2_to_r5_ack_pii_pipeline(self):
         """Full pipeline: V2 → convert → ACK → mask."""
-        from brightohir import v2_to_r5, generate_ack, mask_bundle
+        from brightohir import generate_ack, mask_bundle, v2_to_r5
         msg = FULL_ADT
         # Convert
         bundle = v2_to_r5(msg)
@@ -518,15 +517,11 @@ class TestFullIntegration:
     def test_all_public_api_v11(self):
         """Verify all v1.1 public API symbols are importable."""
         from brightohir import (
-            R5, v2_to_r5, r5_to_v2, r4_to_r5, r5_to_r4,
-            V2Converter, conversion_status,
-            generate_ack, generate_batch_ack,
-            mask_v2, mask_fhir, mask_bundle, PIIMasker,
-            ALL_R5_RESOURCES, R5_RESOURCES, R4_TO_R5_MAP,
-            V2_SEGMENT_TO_FHIR, V2_MESSAGE_TO_FHIR,
-            V2_DATATYPE_TO_FHIR, V2_TABLE_TO_FHIR_SYSTEM,
+            generate_ack,
+            mask_v2,
+            v2_to_r5,
         )
-        from brightohir.transport import MLLPServer, MLLPClient, mllp_encode, mllp_decode
+        from brightohir.transport import mllp_encode
         assert callable(v2_to_r5)
         assert callable(generate_ack)
         assert callable(mask_v2)
@@ -534,7 +529,7 @@ class TestFullIntegration:
 
     def test_converter_count(self):
         """Verify we have 31 V2→R5 creators, 20 enrichers, and 23 R5→V2 converters."""
-        from brightohir.convert_v2 import _SEGMENT_CONVERTERS, _SEGMENT_ENRICHERS, _R5_TO_V2_CONVERTERS
+        from brightohir.convert_v2 import _R5_TO_V2_CONVERTERS, _SEGMENT_CONVERTERS, _SEGMENT_ENRICHERS
         assert len(_SEGMENT_CONVERTERS) >= 31, f"Expected ≥31 V2→R5 creators, got {len(_SEGMENT_CONVERTERS)}"
         assert len(_SEGMENT_ENRICHERS) >= 20, f"Expected ≥20 enrichers, got {len(_SEGMENT_ENRICHERS)}"
         assert len(_R5_TO_V2_CONVERTERS) >= 23, f"Expected ≥23 R5→V2, got {len(_R5_TO_V2_CONVERTERS)}"

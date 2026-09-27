@@ -16,6 +16,10 @@ __pycache__/
 venv/
 ENV/
 
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
 # IDE
 .idea/
 .vscode/

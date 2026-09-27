@@ -26,7 +26,6 @@ from typing import Any
 
 from .registry import R4_TO_R5_MAP, R5_FROM_R4
 
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Transform functions for restructured resources
 # Each function: (dict) → dict, modifies in place and returns
@@ -53,7 +52,7 @@ def _encounter_r5_to_r4(d: dict) -> dict:
     # class: CodeableConcept[] → Coding
     if "class" in d and isinstance(d["class"], list) and d["class"]:
         cc = d["class"][0]
-        if "coding" in cc and cc["coding"]:
+        if cc.get("coding"):
             d["class"] = cc["coding"][0]
     # admission → hospitalization
     if "admission" in d:

@@ -2,10 +2,9 @@
 Tests for brightohir.vn — Vietnamese Healthcare Code Systems.
 Run: pytest tests/test_vn.py -v
 """
-import json
 import pytest
-from pathlib import Path
-from brightohir.vn import VN, VNCodeSystem, VN_CODE_SYSTEMS, _resolve_alias
+
+from brightohir.vn import VN, VN_CODE_SYSTEMS, VNCodeSystem, _resolve_alias
 
 # Data directory: use the bundled path inside the installed package
 DATA_DIR = VN._bundled_data_dir()
@@ -336,7 +335,6 @@ class TestVNConverterIntegration:
 
     def test_converter_without_vn_data(self):
         """Converters should work without VN data loaded (fresh registry)."""
-        from brightohir.vn import _VNRegistry
         from brightohir.convert_v2 import _vn_enrich_codeable_concept
         # Enrich should be no-op when not loaded
         cc = {"coding": [{"code": "J06.9"}]}
@@ -385,7 +383,7 @@ class TestVNCodeSystemClass:
 
 class TestVNPublicAPI:
     def test_imports(self):
-        from brightohir import VN, VNCodeSystem, VN_CODE_SYSTEMS
+        from brightohir import VN, VN_CODE_SYSTEMS, VNCodeSystem
         assert VN is not None
         assert VNCodeSystem is not None
         assert len(VN_CODE_SYSTEMS) == 11

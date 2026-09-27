@@ -29,7 +29,6 @@ from __future__ import annotations
 import copy
 import hashlib
 import re
-import uuid
 from typing import Any, Literal
 
 MaskStrategy = Literal["redact", "hash", "pseudonym", "partial"]
@@ -223,7 +222,15 @@ class PIIMasker:
             return self._mask_value(value, ftype)
 
         if isinstance(value, bool):
-            return self._mask_value(str(value), "text") if self.strategy == "redact" else value
+            # Booleans are not string-maskable without corrupting the FHIR
+            # schema (deceasedBoolean: true must stay a boolean). Leave them
+            # untouched so masked resources remain valid R5.
+            return value
+
+        if isinstance(value, (int, float)):
+            # Numeric scalars (e.g. multipleBirthInteger) are not safely
+            # maskable; keep them to preserve schema validity.
+            return value
 
         if isinstance(value, list):
             return [self._mask_fhir_field(item, field_name) for item in value]
@@ -231,15 +238,20 @@ class PIIMasker:
         if isinstance(value, dict):
             masked = {}
             for k, v in value.items():
-                if k in ("system", "use", "type", "resourceType", "coding"):
+                if k in ("system", "use", "type", "resourceType"):
                     # Preserve structural/coded fields
-                    if k == "coding":
-                        masked[k] = v  # Don't mask code systems
-                    else:
-                        masked[k] = v
+                    masked[k] = v
+                elif k == "coding":
+                    masked[k] = v  # Don't mask code systems
                 elif k in ("value", "family", "given", "text", "line", "city",
                            "state", "postalCode", "country", "display", "reference"):
-                    masked[k] = self._mask_fhir_field(v, k)
+                    # A ContactPoint's `value` is a phone number when the
+                    # parent element carries system=phone/fax/pager — thread
+                    # that hint so pseudonym/partial strategies stay type-correct.
+                    child_field = k
+                    if k == "value" and value.get("system") in ("phone", "fax", "pager", "sms", "email"):
+                        child_field = "telecom"
+                    masked[k] = self._mask_fhir_field(v, child_field)
                 else:
                     masked[k] = self._mask_fhir_field(v, field_name)
             return masked
@@ -250,7 +262,7 @@ class PIIMasker:
         """Infer masking type from FHIR field name."""
         if field_name in ("name", "family", "given", "display", "text"):
             return "name"
-        if field_name in ("telecom", "value") and "phone" in field_name.lower():
+        if field_name in ("telecom", "phone", "email", "fax", "pager"):
             return "phone"
         if field_name in ("birthDate", "deceasedDateTime"):
             return "date"

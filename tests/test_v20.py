@@ -2,11 +2,8 @@
 Tests for brightohir v2.0.0 — Tier 2+3 converters, enrichers, reverse converters.
 Run: pytest tests/test_v20.py -v
 """
-import json
-import pytest
-from brightohir import V2Converter, v2_to_r5, r5_to_v2
-from brightohir.convert_v2 import _SEGMENT_CONVERTERS, _SEGMENT_ENRICHERS, _R5_TO_V2_CONVERTERS
-
+from brightohir import V2Converter, r5_to_v2, v2_to_r5
+from brightohir.convert_v2 import _R5_TO_V2_CONVERTERS, _SEGMENT_CONVERTERS, _SEGMENT_ENRICHERS
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Coverage verification
@@ -93,7 +90,6 @@ class TestTier2Creators:
         # ARV may not be recognized by hl7apy in all versions — test manual fallback too
         if consent is None:
             # Force manual path
-            from brightohir.convert_v2 import _arv_to_consent
             class FakeSeg:
                 name = "ARV"
                 def __init__(self): pass
